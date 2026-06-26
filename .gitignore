@@ -1,0 +1,97 @@
+# ─────────────────────────────────────────────────────────────
+# Forge — macOS developer environment manager
+# Standard ignores for Swift 6 / SwiftUI / SwiftData / SwiftPM / Xcode 26
+# ─────────────────────────────────────────────────────────────
+
+# ── macOS ─────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+._*
+.Spotlight-V100
+.Trashes
+.LSOverride
+Icon?
+ehthumbs.db
+Thumbs.db
+.DocumentRevisions-V100
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+
+# ── Xcode — user-specific (regenerated per machine) ───────────
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# ── Xcode — build artifacts ──────────────────────────────────
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.xcarchive
+*.xcresult
+/Build/
+
+# ── Swift Package Manager ─────────────────────────────────────
+.build/
+.swiftpm/
+Packages/*/.build/
+Packages/*/.swiftpm/
+
+# ── CocoaPods (not used, defensive) ───────────────────────────
+Pods/
+Podfile.lock
+
+# ── Carthage (not used) ───────────────────────────────────────
+Carthage/Build/
+Carthage/Checkouts/
+
+# ── Fastlane ──────────────────────────────────────────────────
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# ── Ruby (xcodeproj gem + helpers) ────────────────────────────
+*.gem
+.bundle/
+vendor/bundle/
+.byebug_history
+
+# ── SwiftData local stores (defensive; main store lives outside repo at ~/Library/Application Support/forge.store) ──
+*.store
+*.store-shm
+*.store-wal
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Secrets (never commit) ────────────────────────────────────
+.env
+.env.local
+*.p12
+*.cer
+*.mobileprovision
+*.key
+*.pem
+
+# ── Editors / IDEs ────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.history/
+
+# ── OS-specific junk ──────────────────────────────────────────
+desktop.ini
+$RECYCLE.BIN/
