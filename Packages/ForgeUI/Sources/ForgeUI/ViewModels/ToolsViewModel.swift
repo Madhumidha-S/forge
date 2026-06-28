@@ -9,9 +9,14 @@ public final class ToolsViewModel: ObservableObject {
     @Published public private(set) var isLoading: Bool = false
     @Published public private(set) var lastError: String? = nil
     @Published public private(set) var updateAvailability: [UpdateAvailabilityEntry] = []
+    @Published public private(set) var totalCount: Int = 0
+    @Published public private(set) var healthyCount: Int = 0
+    @Published public private(set) var issuesCount: Int = 0
+    @Published public private(set) var lastScanDate: Date? = nil
 
     private let registry: any DetectorRegistryProtocol
     private let persistence: any PersistenceControllerProtocol
+    private var scanInFlight = false
 
     public init(
         registry: any DetectorRegistryProtocol,
@@ -24,9 +29,14 @@ public final class ToolsViewModel: ObservableObject {
     /// Re-runs all registered detectors, persists the results, and updates
     /// the published tool list sorted by display name.
     public func refresh() async {
+        guard !scanInFlight else { return }
+        scanInFlight = true
         isLoading = true
         lastError = nil
-        defer { isLoading = false }
+        defer {
+            scanInFlight = false
+            isLoading = false
+        }
 
         do {
             let detections = try await registry.scanAll()
@@ -35,6 +45,10 @@ public final class ToolsViewModel: ObservableObject {
             tools = detections
                 .map(ToolUIModel.from(_:))
                 .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+            totalCount = tools.count
+            healthyCount = tools.filter { $0.isHealthy }.count
+            issuesCount = totalCount - healthyCount
+            lastScanDate = tools.map { $0.lastChecked }.max()
         } catch {
             lastError = error.localizedDescription
         }

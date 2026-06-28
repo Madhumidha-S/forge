@@ -18,8 +18,10 @@ public struct ToolsView: View {
 
     public var body: some View {
         NavigationStack {
-            List(toolsViewModel.tools) { tool in
-                ToolRow(model: tool)
+            VStack(spacing: 0) {
+                statsHeader
+                Divider()
+                content
             }
             .navigationTitle("Tools")
             .toolbar {
@@ -52,6 +54,76 @@ public struct ToolsView: View {
                 Text(error)
             }
         }
+    }
+
+    // MARK: - Sections
+
+    @ViewBuilder
+    private var content: some View {
+        if toolsViewModel.tools.isEmpty && !toolsViewModel.isLoading {
+            emptyState
+        } else {
+            toolList
+        }
+    }
+
+    private var toolList: some View {
+        List(toolsViewModel.tools) { tool in
+            ToolRow(model: tool)
+        }
+        .overlay {
+            if toolsViewModel.isLoading {
+                ProgressView()
+                    .scaleEffect(1.25)
+                    .padding(20)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+
+    private var statsHeader: some View {
+        HStack(alignment: .center, spacing: 28) {
+            statBlock(label: "Detected", value: "\(toolsViewModel.totalCount)")
+            statBlock(label: "Healthy", value: "\(toolsViewModel.healthyCount)")
+            statBlock(label: "Issues", value: "\(toolsViewModel.issuesCount)")
+            Spacer()
+            if let date = toolsViewModel.lastScanDate {
+                statBlock(
+                    label: "Last Scan",
+                    value: date.formatted(date: .omitted, time: .shortened)
+                )
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    private func statBlock(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.title3.weight(.semibold))
+                .monospacedDigit()
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "wrench.and.screwdriver")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("No tools detected yet.")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Text("Press Refresh to scan for installed developer tools.")
+                .font(.subheadline)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
     }
 }
 

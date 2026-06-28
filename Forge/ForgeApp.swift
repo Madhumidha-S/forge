@@ -9,22 +9,34 @@ struct ForgeApp: App {
     @StateObject private var toolsViewModel: ToolsViewModel
 
     init() {
-        // Build the live detector registry and register NodeDetector at launch.
+        // Build the live detector registry and bridge it to the core protocol.
         let registry = DetectorRegistry()
-        Task { @MainActor in
-            await registry.register(NodeDetector())
-        }
-
-        // Bridge the actor to the core protocol and assemble the live environment.
         let adapter = LiveDetectorRegistryAdapter(actor: registry)
         let env = AppEnvironment.live(detectorRegistry: adapter)
         _environment = StateObject(wrappedValue: env)
-        _toolsViewModel = StateObject(
-            wrappedValue: ToolsViewModel(
-                registry: env.detectorRegistry,
-                persistence: env.persistenceController
-            )
+        let viewModel = ToolsViewModel(
+            registry: env.detectorRegistry,
+            persistence: env.persistenceController
         )
+        _toolsViewModel = StateObject(wrappedValue: viewModel)
+
+        // Register all detectors and seed the initial scan on launch.
+        let detectors: [any ToolDetector] = [
+            NodeDetector(),
+            PythonDetector(),
+            GitDetector(),
+            HomebrewDetector(),
+            JavaDetector(),
+            FlutterDetector(),
+            DockerDetector(),
+            OllamaDetector()
+        ]
+        Task { @MainActor in
+            for detector in detectors {
+                await registry.register(detector)
+            }
+            await viewModel.refresh()
+        }
     }
 
     var body: some Scene {
