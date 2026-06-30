@@ -36,9 +36,6 @@ public struct ToolsView: View {
                     .disabled(toolsViewModel.isLoading)
                 }
             }
-            .task {
-                await toolsViewModel.refresh()
-            }
             .alert(
                 "Refresh failed",
                 isPresented: Binding(

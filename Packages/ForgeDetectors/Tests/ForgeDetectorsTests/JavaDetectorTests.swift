@@ -39,7 +39,7 @@ final class JavaDetectorTests: XCTestCase {
         XCTAssertEqual(result.healthChecks.first?.name, "binary-source")
         XCTAssertEqual(result.healthChecks.first?.detail, "java_home")
         XCTAssertEqual(result.healthChecks.first?.passed, true)
-        XCTAssertEqual(runner.calls.count, 2)
+        XCTAssertEqual(runner.calls.count, 3)
     }
 
     func testNotInstalledThrowsNotFound() async throws {

@@ -86,6 +86,7 @@ yarn-error.log*
 
 # ── Editors / IDEs ────────────────────────────────────────────
 .vscode/
+.kimchi/
 .idea/
 *.swp
 *.swo
