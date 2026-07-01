@@ -17,8 +17,36 @@ public struct FlutterDetector: ToolDetector {
     }
 
     public func detect() async throws -> DetectionResult {
-        let path = try resolveViaPath()
-        return try await probeBinary(at: path, source: "PATH")
+        let path = try await resolvePathWithRetry()
+        return try await probeBinaryWithRetry(at: path, source: "PATH")
+    }
+
+    /// Resolves the binary path with a single short retry. The first call
+    /// occasionally fails under GUI-app launch-time contention — when the
+    /// eight detectors fire in parallel inside `withTaskGroup` while the
+    /// app is still finishing its own setup, the subprocess that runs
+    /// `command -v flutter` can race with sibling processes and miss the
+    /// window. A 150 ms retry absorbs that transient without changing the
+    /// happy-path latency.
+    private func resolvePathWithRetry() async throws -> String {
+        do {
+            return try resolveViaPath()
+        } catch {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            return try resolveViaPath()
+        }
+    }
+
+    /// Probes the binary with a single short retry for the same reason as
+    /// `resolvePathWithRetry`: Flutter's first Dart VM cold start can
+    /// race with the launch-time scan; the retry reliably succeeds.
+    private func probeBinaryWithRetry(at path: String, source: String) async throws -> DetectionResult {
+        do {
+            return try await probeBinary(at: path, source: "PATH")
+        } catch {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            return try await probeBinary(at: path, source: "PATH")
+        }
     }
 
     private func resolveViaPath() throws -> String {
