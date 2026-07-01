@@ -23,8 +23,8 @@ public struct FlutterDetector: ToolDetector {
 
     private func resolveViaPath() throws -> String {
         let result = try commandRunner.run(
-            executable: URL(fileURLWithPath: "/usr/bin/which"),
-            arguments: ["flutter"]
+            executable: URL(fileURLWithPath: "/bin/zsh"),
+            arguments: ["-ilc", "command -v flutter"]
         )
         guard result.exitCode == 0 else { throw DetectionError.notFound }
         let raw = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)

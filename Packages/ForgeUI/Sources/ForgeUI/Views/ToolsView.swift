@@ -24,6 +24,9 @@ public struct ToolsView: View {
                 content
             }
             .navigationTitle("Tools")
+            .task {
+                await toolsViewModel.loadCached()
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {

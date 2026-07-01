@@ -23,7 +23,7 @@ final class FlutterDetectorTests: XCTestCase {
 
     func testInstalledReturnsVersionAndPath() async throws {
         let runner = FakeCommandRunner { exe, args in
-            if exe.lastPathComponent == "which" && args == ["flutter"] {
+            if exe.lastPathComponent == "zsh" && args == ["-ilc", "command -v flutter"] {
                 return CommandResult(stdout: "/usr/local/bin/flutter\n", exitCode: 0)
             }
             if exe.lastPathComponent == "flutter" && args == ["--version"] {
@@ -59,7 +59,7 @@ final class FlutterDetectorTests: XCTestCase {
 
     func testMalformedVersionThrowsMalformedOutput() async throws {
         let runner = FakeCommandRunner { exe, args in
-            if exe.lastPathComponent == "which" && args == ["flutter"] {
+            if exe.lastPathComponent == "zsh" && args == ["-ilc", "command -v flutter"] {
                 return CommandResult(stdout: "/usr/local/bin/flutter\n", exitCode: 0)
             }
             if exe.lastPathComponent == "flutter" && args == ["--version"] {

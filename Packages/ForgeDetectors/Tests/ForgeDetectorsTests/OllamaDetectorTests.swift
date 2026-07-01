@@ -23,7 +23,7 @@ final class OllamaDetectorTests: XCTestCase {
 
     func testInstalledReturnsVersionAndPath() async throws {
         let runner = FakeCommandRunner { exe, args in
-            if exe.lastPathComponent == "which" && args == ["ollama"] {
+            if exe.lastPathComponent == "zsh" && args == ["-ilc", "command -v ollama"] {
                 return CommandResult(stdout: "/usr/local/bin/ollama\n", exitCode: 0)
             }
             if exe.path == "/usr/local/bin/ollama" && args == ["--version"] {
@@ -50,7 +50,7 @@ final class OllamaDetectorTests: XCTestCase {
 
     func testInstalledWithIsFormatParsesVersion() async throws {
         let runner = FakeCommandRunner { exe, args in
-            if exe.lastPathComponent == "which" && args == ["ollama"] {
+            if exe.lastPathComponent == "zsh" && args == ["-ilc", "command -v ollama"] {
                 return CommandResult(stdout: "/opt/homebrew/bin/ollama\n", exitCode: 0)
             }
             if exe.path == "/opt/homebrew/bin/ollama" && args == ["--version"] {
@@ -92,7 +92,7 @@ final class OllamaDetectorTests: XCTestCase {
 
     func testMalformedVersionThrowsMalformedOutput() async throws {
         let runner = FakeCommandRunner { exe, args in
-            if exe.lastPathComponent == "which" && args == ["ollama"] {
+            if exe.lastPathComponent == "zsh" && args == ["-ilc", "command -v ollama"] {
                 return CommandResult(stdout: "/usr/local/bin/ollama\n", exitCode: 0)
             }
             if exe.path == "/usr/local/bin/ollama" && args == ["--version"] {

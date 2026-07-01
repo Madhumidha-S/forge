@@ -23,7 +23,7 @@ final class DockerDetectorTests: XCTestCase {
 
     func testInstalledReturnsVersionAndPath() async throws {
         let runner = FakeCommandRunner { exe, args in
-            if exe.lastPathComponent == "which" && args == ["docker"] {
+            if exe.lastPathComponent == "zsh" && args == ["-ilc", "command -v docker"] {
                 return CommandResult(stdout: "/usr/local/bin/docker\n", exitCode: 0)
             }
             if exe.path == "/usr/local/bin/docker" && args == ["--version"] {
@@ -65,7 +65,7 @@ final class DockerDetectorTests: XCTestCase {
 
     func testMalformedVersionThrowsMalformedOutput() async throws {
         let runner = FakeCommandRunner { exe, args in
-            if exe.lastPathComponent == "which" && args == ["docker"] {
+            if exe.lastPathComponent == "zsh" && args == ["-ilc", "command -v docker"] {
                 return CommandResult(stdout: "/usr/local/bin/docker\n", exitCode: 0)
             }
             if exe.path == "/usr/local/bin/docker" && args == ["--version"] {

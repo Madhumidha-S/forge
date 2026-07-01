@@ -23,7 +23,7 @@ final class GitDetectorTests: XCTestCase {
 
     func testInstalledReturnsVersionAndPath() async throws {
         let runner = FakeCommandRunner { exe, args in
-            if exe.lastPathComponent == "which" && args == ["git"] {
+            if exe.lastPathComponent == "zsh" && args == ["-ilc", "command -v git"] {
                 return CommandResult(stdout: "/usr/bin/git\n", exitCode: 0)
             }
             if exe.lastPathComponent == "git" && args == ["--version"] {
@@ -59,7 +59,7 @@ final class GitDetectorTests: XCTestCase {
 
     func testMalformedVersionThrowsMalformedOutput() async throws {
         let runner = FakeCommandRunner { exe, args in
-            if exe.lastPathComponent == "which" && args == ["git"] {
+            if exe.lastPathComponent == "zsh" && args == ["-ilc", "command -v git"] {
                 return CommandResult(stdout: "/usr/bin/git\n", exitCode: 0)
             }
             if exe.lastPathComponent == "git" && args == ["--version"] {

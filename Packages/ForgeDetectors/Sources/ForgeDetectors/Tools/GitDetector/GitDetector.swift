@@ -23,8 +23,8 @@ public struct GitDetector: ToolDetector {
 
     private func resolveViaPath() throws -> String {
         let result = try commandRunner.run(
-            executable: URL(fileURLWithPath: "/usr/bin/which"),
-            arguments: ["git"]
+            executable: URL(fileURLWithPath: "/bin/zsh"),
+            arguments: ["-ilc", "command -v git"]
         )
         guard result.exitCode == 0 else { throw DetectionError.notFound }
         let raw = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
