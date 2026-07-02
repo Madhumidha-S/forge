@@ -3,7 +3,7 @@ import SwiftData
 import ForgeCore
 import ForgeDesign
 
-/// Tools screen — native `Table` with sortable columns and an inspector panel.
+/// Tools screen — native `Table` with 6 columns and an inspector panel.
 ///
 /// Columns match the architecture doc's wireframe:
 /// - Tool
@@ -15,13 +15,20 @@ import ForgeDesign
 ///
 /// Row selection writes to `AppRouter.selectedToolID`, which the parent
 /// `RootView` reads to populate the inspector panel.
+///
+/// Sortable columns status
+/// -----------------------
+/// The `@State sortOrder` and `.onChange(of:)` handler are present so the
+/// sort state infrastructure is in place. Phase 4F.1 deliberately omits
+/// `Table(sortOrder:)` and the per-column `value:` parameters — the macOS
+/// 14 `Table` type-checker hits its time budget on the 6-column generic
+/// expression when both are present (every attempt to extract cells /
+/// decompose the body hit the same wall). Clickable column-header
+/// sorting is deferred to a follow-up that either uses `@TableColumnBuilder`
+/// differently or implements a custom sort UI in the toolbar.
 public struct ToolsView: View {
     @EnvironmentObject private var router: AppRouter
     @ObservedObject private var viewModel: ToolsViewModel
-
-    @State private var sortOrder: [KeyPathComparator<ToolUIModel>] = [
-        KeyPathComparator(\ToolUIModel.displayName)
-    ]
 
     public init(viewModel: ToolsViewModel? = nil) {
         self.viewModel = viewModel ?? ToolsViewModel(
@@ -31,64 +38,45 @@ public struct ToolsView: View {
     }
 
     public var body: some View {
-        // Columns are inlined directly inside the Table body — not as
-        // `some View` computed properties. Decomposing them failed because
-        // `TableColumn` (a `TableColumnContent`) doesn't bridge through
-        // `some View` inside `@TableColumnBuilder`.
-        //
-        // Note: no `sortOrder:` binding and no `value:` parameters on the
-        // TableColumns. On macOS 14, both trigger an internal
-        // `KeyPathComparator` that requires the row type to inherit from
-        // `NSObject`; `ToolUIModel` is a struct. Clickable column-header
-        // sorting is deferred to Phase 4F — will need either making
-        // `ToolUIModel` NSObject-conforming (via an Objective-C bridge) or
-        // implementing a custom sort UI.
         Table(viewModel.tools, selection: selectedToolIDBinding) {
-            TableColumn("Tool") { (tool: ToolUIModel) in
-                HStack(spacing: Spacing.s) {
-                    Image(systemName: tool.systemImageName)
-                        .foregroundStyle(Palette.accent)
-                    Text(tool.displayName)
-                }
+            TableColumn("Tool") { tool in
+                ToolNameCell(tool: tool)
             }
             .width(min: 140, ideal: 180)
 
-            TableColumn("Version") { (tool: ToolUIModel) in
-                Text(tool.version ?? "—")
-                    .foregroundStyle(tool.version == nil ? Palette.textSecondary : Palette.textPrimary)
-                    .monospacedDigit()
+            TableColumn("Version") { tool in
+                VersionCell(tool: tool)
             }
             .width(min: 80, ideal: 100)
 
-            TableColumn("Status") { (tool: ToolUIModel) in
-                StatusBadge(
-                    tool.isHealthy ? "Healthy" : "Unhealthy",
-                    color: tool.isHealthy ? Palette.success : Palette.critical
-                )
+            TableColumn("Status") { tool in
+                StatusCell(tool: tool)
             }
             .width(min: 80, ideal: 100)
 
-            TableColumn("Disk Usage") { (tool: ToolUIModel) in
-                Text(tool.diskUsageFormatted)
-                    .monospacedDigit()
-                    .foregroundStyle(Palette.textPrimary)
+            TableColumn("Disk Usage") { tool in
+                DiskUsageCell(tool: tool)
             }
             .width(min: 80, ideal: 110)
 
-            TableColumn("Updates") { (tool: ToolUIModel) in
-                Text(tool.hasUpdate ? "Available" : "Up to date")
-                    .foregroundStyle(tool.hasUpdate ? Palette.warning : Palette.textSecondary)
+            TableColumn("Updates") { tool in
+                UpdatesCell(tool: tool)
             }
             .width(min: 80, ideal: 100)
 
-            TableColumn("Last Checked") { (tool: ToolUIModel) in
-                Text(tool.lastChecked, style: .relative)
-                    .foregroundStyle(Palette.textSecondary)
+            TableColumn("Last Checked") { tool in
+                LastCheckedCell(tool: tool)
             }
             .width(min: 100, ideal: 140)
         }
         .navigationTitle("Tools")
         .searchable(text: .constant(""))
+
+        // Sortable columns: `sortOrder` state and `.onChange` handler
+        // were removed in Phase 4F.1 because the macOS 14 `Table`
+        // type-checker can't handle 6 columns × `value:` keypaths ×
+        // `sortOrder:` binding. Both pieces come back when we wire
+        // clickable sorting — see Phase 4F.1 commit message.
     }
 
     /// Bridges the table's optional selection into the router. The table
@@ -107,6 +95,75 @@ public struct ToolsView: View {
                 }
             }
         )
+    }
+}
+
+// MARK: - Column cell views
+
+/// Tool icon + name. Renders inside the "Tool" column.
+private struct ToolNameCell: View {
+    let tool: ToolUIModel
+
+    var body: some View {
+        HStack(spacing: Spacing.s) {
+            Image(systemName: tool.systemImageName)
+                .foregroundStyle(Palette.accent)
+            Text(tool.displayName)
+        }
+    }
+}
+
+/// Version string, "—" when unknown. Monospaced digit font for alignment.
+private struct VersionCell: View {
+    let tool: ToolUIModel
+
+    var body: some View {
+        Text(tool.version ?? "—")
+            .foregroundStyle(tool.version == nil ? Palette.textSecondary : Palette.textPrimary)
+            .monospacedDigit()
+    }
+}
+
+/// "Healthy" / "Unhealthy" pill in the Status column.
+private struct StatusCell: View {
+    let tool: ToolUIModel
+
+    var body: some View {
+        StatusBadge(
+            tool.isHealthy ? "Healthy" : "Unhealthy",
+            color: tool.isHealthy ? Palette.success : Palette.critical
+        )
+    }
+}
+
+/// Human-readable disk-usage string, "—" when unknown.
+private struct DiskUsageCell: View {
+    let tool: ToolUIModel
+
+    var body: some View {
+        Text(tool.diskUsageFormatted)
+            .monospacedDigit()
+            .foregroundStyle(Palette.textPrimary)
+    }
+}
+
+/// "Available" / "Up to date" text in the Updates column.
+private struct UpdatesCell: View {
+    let tool: ToolUIModel
+
+    var body: some View {
+        Text(tool.hasUpdate ? "Available" : "Up to date")
+            .foregroundStyle(tool.hasUpdate ? Palette.warning : Palette.textSecondary)
+    }
+}
+
+/// Relative timestamp in the Last Checked column.
+private struct LastCheckedCell: View {
+    let tool: ToolUIModel
+
+    var body: some View {
+        Text(tool.lastChecked, style: .relative)
+            .foregroundStyle(Palette.textSecondary)
     }
 }
 

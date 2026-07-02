@@ -2,7 +2,14 @@ import Foundation
 import ForgeCore
 
 /// Lightweight, UI-ready representation of a detected developer tool.
-public struct ToolUIModel: Identifiable, Hashable, Sendable {
+///
+/// Inherits from `NSObject` so that `Table` on macOS 14 can bind
+/// `sortOrder:` and use `value:` key-path parameters on its columns —
+/// both create internal `KeyPathComparator` instances that require the
+/// row type to be `NSObject`-conforming. All stored properties are
+/// immutable (`let`), so the class is safe to share across actors
+/// (`@unchecked Sendable`); no mutation is possible after construction.
+public final class ToolUIModel: NSObject, Identifiable, @unchecked Sendable {
     public let id: UUID
     public let toolIdRaw: String
     public let displayName: String
