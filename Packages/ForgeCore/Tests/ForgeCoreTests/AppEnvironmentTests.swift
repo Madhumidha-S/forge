@@ -7,18 +7,21 @@ final class AppEnvironmentTests: XCTestCase {
 
     func testEnvironmentComposesMockSlots() {
         let detectorRegistry = MockDetectorRegistry()
+        let diagnosticsEngine = MockDiagnosticsEngine()
         let persistenceController = MockPersistenceController()
         let cleanupRegistry = MockCleanupServiceRegistry()
         let updateRegistry = MockUpdateProviderRegistry()
 
         let env = AppEnvironment(
             detectorRegistry: detectorRegistry,
+            diagnosticsEngine: diagnosticsEngine,
             persistenceController: persistenceController,
             cleanupServiceRegistry: cleanupRegistry,
             updateProviderRegistry: updateRegistry
         )
 
         XCTAssertTrue(env.detectorRegistry as AnyObject === detectorRegistry as AnyObject)
+        XCTAssertTrue(env.diagnosticsEngine as AnyObject === diagnosticsEngine as AnyObject)
         XCTAssertTrue(env.persistenceController as AnyObject === persistenceController as AnyObject)
         XCTAssertTrue(env.cleanupServiceRegistry as AnyObject === cleanupRegistry as AnyObject)
         XCTAssertTrue(env.updateProviderRegistry as AnyObject === updateRegistry as AnyObject)
@@ -29,6 +32,9 @@ final class AppEnvironmentTests: XCTestCase {
 
         let detections = try? await env.detectorRegistry.scanAll()
         XCTAssertEqual(detections, [])
+
+        let issues = try? await env.diagnosticsEngine.analyze()
+        XCTAssertEqual(issues, [])
 
         // Persistence may resolve to a real on-disk store or a NoOp depending on
         // environment; we only assert the call is functional, not the contents.
@@ -63,4 +69,10 @@ private final class MockCleanupServiceRegistry: CleanupServiceRegistryProtocol {
 
 private final class MockUpdateProviderRegistry: UpdateProviderRegistryProtocol {
     func latestVersion(for toolID: ToolID) async throws -> SemVer? { nil }
+}
+
+private final class MockDiagnosticsEngine: DiagnosticsEngineProtocol {
+    func analyze() async throws -> [DiagnosticIssue] { [] }
+    func analyze(toolID: ToolID) async throws -> [DiagnosticIssue] { [] }
+    func cancel() async {}
 }

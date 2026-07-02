@@ -20,6 +20,8 @@
 		B6EDE0046A83A94BECBCA2F3 /* ForgeUtilities in Frameworks */ = {isa = PBXBuildFile; productRef = C388EF02350BE9F33428D881 /* ForgeUtilities */; };
 		D271965EB584F148AEF07E06 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5603DBA1780F9A11A8AE331C /* Cocoa.framework */; };
 		E0128E8E249F32D0DE98980A /* ForgeDetectors in Frameworks */ = {isa = PBXBuildFile; productRef = 65A3374A412650737126971C /* ForgeDetectors */; };
+		B5E67F8A9B0C1D2E3F4A5B6C /* ForgeDiagnostics in Frameworks */ = {isa = PBXBuildFile; productRef = F3C45D6E7F8A9B0C1D2E3F4A /* ForgeDiagnostics */; };
+		C6F78A9B0C1D2E3F4A5B6C7D /* ForgeDesign in Frameworks */ = {isa = PBXBuildFile; productRef = A4D56E7F8A9B0C1D2E3F4A5B /* ForgeDesign */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +47,8 @@
 				8BF177EBD614C3F49F3C50AF /* ForgeUI in Frameworks */,
 				7D0AA3A50BDBDBF693994C01 /* ForgeUtilities in Frameworks */,
 				4B1AFD5DF81A75A273E1B1B1 /* ForgeUpdates in Frameworks */,
+				B5E67F8A9B0C1D2E3F4A5B6C /* ForgeDiagnostics in Frameworks */,
+				C6F78A9B0C1D2E3F4A5B6C7D /* ForgeDesign in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -154,6 +158,8 @@
 				89D879D183A7EDBFEC8574BD /* ForgeUI */,
 				C388EF02350BE9F33428D881 /* ForgeUtilities */,
 				904F9826E8448371998503B5 /* ForgeUpdates */,
+				F3C45D6E7F8A9B0C1D2E3F4A /* ForgeDiagnostics */,
+				A4D56E7F8A9B0C1D2E3F4A5B /* ForgeDesign */,
 			);
 			productName = Forge;
 			productReference = 4ED0D4652EA8F68E161DC6A0 /* Forge.app */;
@@ -184,6 +190,8 @@
 				ABA60AB2818ACEBFC472EEA7 /* XCLocalSwiftPackageReference "ForgeUI" */,
 				DC90CA72C639FFE10E351C4A /* XCLocalSwiftPackageReference "ForgeUtilities" */,
 				20867F09A8F16AC44E707691 /* XCLocalSwiftPackageReference "ForgeUpdates" */,
+				D1A23F4B5C6D7E8F9A0B1C2D /* XCLocalSwiftPackageReference "ForgeDiagnostics" */,
+				E2B34C5D6E7F8A9B0C1D2E3F /* XCLocalSwiftPackageReference "ForgeDesign" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1326F7459737B2F1D5D34E69 /* Products */;
@@ -493,6 +501,14 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/ForgeUtilities;
 		};
+		D1A23F4B5C6D7E8F9A0B1C2D /* XCLocalSwiftPackageReference "ForgeDiagnostics" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ForgeDiagnostics;
+		};
+		E2B34C5D6E7F8A9B0C1D2E3F /* XCLocalSwiftPackageReference "ForgeDesign" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ForgeDesign;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -520,6 +536,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DC90CA72C639FFE10E351C4A /* XCLocalSwiftPackageReference "ForgeUtilities" */;
 			productName = ForgeUtilities;
+		};
+		F3C45D6E7F8A9B0C1D2E3F4A /* ForgeDiagnostics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D1A23F4B5C6D7E8F9A0B1C2D /* XCLocalSwiftPackageReference "ForgeDiagnostics" */;
+			productName = ForgeDiagnostics;
+		};
+		A4D56E7F8A9B0C1D2E3F4A5B /* ForgeDesign */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E2B34C5D6E7F8A9B0C1D2E3F /* XCLocalSwiftPackageReference "ForgeDesign" */;
+			productName = ForgeDesign;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

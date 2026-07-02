@@ -40,6 +40,24 @@ public protocol UpdateProviderRegistryProtocol: Sendable {
     func latestVersion(for toolID: ToolID) async throws -> SemVer?
 }
 
+/// Abstract diagnostics engine. Concrete implementations live in
+/// `ForgeDiagnostics`. Phase 4A ships the protocol and a no-op
+/// implementation; the real `DiagnosticsEngine` actor lands in Phase 4B.
+public protocol DiagnosticsEngineProtocol: Sendable {
+    /// Run every registered diagnostics provider and return their issues.
+    /// Errors in individual providers are caught and surfaced as a single
+    /// `DiagnosticIssue(severity: .warning, …)` so one broken provider
+    /// cannot abort the whole analysis.
+    func analyze() async throws -> [DiagnosticIssue]
+
+    /// Run only the provider for the given tool, if one is registered.
+    /// Returns an empty array when the tool has no registered provider.
+    func analyze(toolID: ToolID) async throws -> [DiagnosticIssue]
+
+    /// Cancel any in-flight analysis. Safe to call from any isolation.
+    func cancel() async
+}
+
 // MARK: - Value Types Used by Protocols
 
 /// A lightweight detection result used by the core protocol boundary.
@@ -90,17 +108,20 @@ public protocol ToolDetectorProtocol: Sendable {
 @MainActor
 public final class AppEnvironment: Sendable, ObservableObject {
     public var detectorRegistry: any DetectorRegistryProtocol
+    public var diagnosticsEngine: any DiagnosticsEngineProtocol
     public var persistenceController: any PersistenceControllerProtocol
     public var cleanupServiceRegistry: any CleanupServiceRegistryProtocol
     public var updateProviderRegistry: any UpdateProviderRegistryProtocol
 
     public init(
         detectorRegistry: any DetectorRegistryProtocol,
+        diagnosticsEngine: any DiagnosticsEngineProtocol,
         persistenceController: any PersistenceControllerProtocol,
         cleanupServiceRegistry: any CleanupServiceRegistryProtocol,
         updateProviderRegistry: any UpdateProviderRegistryProtocol
     ) {
         self.detectorRegistry = detectorRegistry
+        self.diagnosticsEngine = diagnosticsEngine
         self.persistenceController = persistenceController
         self.cleanupServiceRegistry = cleanupServiceRegistry
         self.updateProviderRegistry = updateProviderRegistry
@@ -120,6 +141,7 @@ public final class AppEnvironment: Sendable, ObservableObject {
         }
         return AppEnvironment(
             detectorRegistry: detectorRegistry ?? NoOpDetectorRegistry(),
+            diagnosticsEngine: NoOpDiagnosticsEngine(),
             persistenceController: persistence,
             cleanupServiceRegistry: NoOpCleanupServiceRegistry(),
             updateProviderRegistry: NoOpUpdateProviderRegistry()
@@ -155,4 +177,10 @@ private final class NoOpCleanupServiceRegistry: CleanupServiceRegistryProtocol {
 
 private final class NoOpUpdateProviderRegistry: UpdateProviderRegistryProtocol {
     func latestVersion(for toolID: ToolID) async throws -> SemVer? { nil }
+}
+
+private final class NoOpDiagnosticsEngine: DiagnosticsEngineProtocol {
+    func analyze() async throws -> [DiagnosticIssue] { [] }
+    func analyze(toolID: ToolID) async throws -> [DiagnosticIssue] { [] }
+    func cancel() async {}
 }
