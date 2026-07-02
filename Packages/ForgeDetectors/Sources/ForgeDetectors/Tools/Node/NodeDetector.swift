@@ -1,46 +1,6 @@
 import Foundation
 import ForgeCore
 
-/// Runs an executable and returns its stdout. Protocol-based so tests can mock
-/// `which`, `node --version`, etc. without spawning real processes.
-public protocol CommandRunner: Sendable {
-    func run(executable: URL, arguments: [String]) throws -> CommandResult
-}
-
-public struct CommandResult: Sendable {
-    public let stdout: String
-    public let stderr: String
-    public let exitCode: Int32
-    public init(stdout: String = "", stderr: String = "", exitCode: Int32 = 0) {
-        self.stdout = stdout
-        self.stderr = stderr
-        self.exitCode = exitCode
-    }
-}
-
-/// Production CommandRunner that shells out via `Process`.
-public struct ProcessCommandRunner: CommandRunner {
-    public init() {}
-    public func run(executable: URL, arguments: [String]) throws -> CommandResult {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-        try process.run()
-        process.waitUntilExit()
-        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        return CommandResult(
-            stdout: String(data: outData, encoding: .utf8) ?? "",
-            stderr: String(data: errData, encoding: .utf8) ?? "",
-            exitCode: process.terminationStatus
-        )
-    }
-}
-
 public struct NodeDetector: ToolDetector {
     public let id: ToolID = .node
     public let displayName = "Node.js"

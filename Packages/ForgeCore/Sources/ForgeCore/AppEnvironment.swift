@@ -131,7 +131,8 @@ public final class AppEnvironment: Sendable, ObservableObject {
     /// before every concrete package is fully wired.
     @MainActor
     public static func live(
-        detectorRegistry: (any DetectorRegistryProtocol)? = nil
+        detectorRegistry: (any DetectorRegistryProtocol)? = nil,
+        diagnosticsEngine: (any DiagnosticsEngineProtocol)? = nil
     ) -> AppEnvironment {
         let persistence: any PersistenceControllerProtocol
         if let real = try? PersistenceController() {
@@ -141,7 +142,7 @@ public final class AppEnvironment: Sendable, ObservableObject {
         }
         return AppEnvironment(
             detectorRegistry: detectorRegistry ?? NoOpDetectorRegistry(),
-            diagnosticsEngine: NoOpDiagnosticsEngine(),
+            diagnosticsEngine: diagnosticsEngine ?? NoOpDiagnosticsEngine(),
             persistenceController: persistence,
             cleanupServiceRegistry: NoOpCleanupServiceRegistry(),
             updateProviderRegistry: NoOpUpdateProviderRegistry()

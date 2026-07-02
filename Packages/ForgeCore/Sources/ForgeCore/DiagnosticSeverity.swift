@@ -13,3 +13,15 @@ public enum DiagnosticSeverity: String, Sendable, Codable, CaseIterable, Hashabl
     /// Critical — blocking issue. Should be the first thing the user sees.
     case critical
 }
+
+extension DiagnosticSeverity {
+    /// Sort key for ordering issues within the Diagnostics screen.
+    /// Lower numbers sort first (critical surfaces before warning before info).
+    public var order: Int {
+        switch self {
+        case .critical: return 0
+        case .warning: return 1
+        case .info: return 2
+        }
+    }
+}
