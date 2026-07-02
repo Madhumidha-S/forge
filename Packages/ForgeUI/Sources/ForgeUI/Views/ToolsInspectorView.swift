@@ -9,6 +9,10 @@ import ForgeDesign
 /// parent `RootView` is responsible for only showing this view when the
 /// current section is `.tools` AND a tool is selected.
 public struct ToolsInspectorView: View {
+    @EnvironmentObject private var environment: AppEnvironment
+    @State private var isAnalyzing = false
+    @State private var issues: [DiagnosticIssue] = []
+
     private let toolID: ToolID
 
     public init(toolID: ToolID) {
@@ -68,8 +72,9 @@ public struct ToolsInspectorView: View {
         ForgeCard {
             VStack(spacing: Spacing.s) {
                 actionButton("Analyze", systemImage: "stethoscope") {
-                    // Phase 4G wires this to the diagnostics engine.
+                    Task { await analyze() }
                 }
+                .disabled(isAnalyzing)
                 actionButton("Cleanup", systemImage: "trash") {
                     // Phase 4J wires this to the cleanup preview sheet.
                 }
@@ -103,5 +108,19 @@ public struct ToolsInspectorView: View {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Runs the diagnostics engine and stores the issues for this specific
+    /// tool. Filters by `toolID` so the inspector shows just the issues
+    /// relevant to the selected tool, not the full set.
+    private func analyze() async {
+        isAnalyzing = true
+        defer { isAnalyzing = false }
+        do {
+            let all = try await environment.diagnosticsEngine.analyze()
+            issues = all.filter { $0.toolID == toolID }
+        } catch {
+            issues = []
+        }
     }
 }
