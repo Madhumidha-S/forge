@@ -64,4 +64,46 @@ public struct ToolUIModel: Identifiable, Hashable, Sendable {
             lastChecked: record.lastChecked
         )
     }
+
+    // MARK: - Computed properties for the Tools table
+
+    /// SF Symbol name for the tool, used in the table's Tool column and
+    /// the inspector header. Maps `toolIdRaw` to a symbol; defaults to a
+    /// generic wrench for unknown tool IDs.
+    public var systemImageName: String {
+        switch toolIdRaw {
+        case "docker":      return "shippingbox.fill"
+        case "flutter":     return "bird"
+        case "git":         return "arrow.triangle.branch"
+        case "homebrew":    return "mug.fill"
+        case "java":        return "cup.and.saucer.fill"
+        case "node":        return "n.circle.fill"
+        case "ollama":      return "cpu.fill"
+        case "python":      return "chevron.left.forwardslash.chevron.right"
+        default:            return "wrench.and.screwdriver.fill"
+        }
+    }
+
+    /// Sortable key for the Status column. Tools with a non-nil version
+    /// sort before those without (`.version == nil` renders as "—").
+    public var isHealthyText: String {
+        isHealthy ? "Healthy" : "Unhealthy"
+    }
+
+    /// Sortable key for the Updates column. Phase 4K will wire this to a
+    /// real UpdateProvider lookup; for now it's always false.
+    public var hasUpdate: Bool { false }
+    public var hasUpdateText: String {
+        hasUpdate ? "Available" : "Up to date"
+    }
+
+    /// Human-readable disk-usage string (e.g. "32.4 GB"). Returns "—"
+    /// when the value is unknown.
+    public var diskUsageFormatted: String {
+        guard let bytes = diskUsageBytes else { return "—" }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
+        formatter.allowedUnits = [.useGB, .useMB, .useTB, .useKB]
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
 }

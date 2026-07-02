@@ -11,7 +11,7 @@ import PackageDescription
 let package = Package(
     name: "ForgeDesign",
     platforms: [
-        .macOS(.v15)
+        .macOS(.v14)
     ],
     products: [
         .library(

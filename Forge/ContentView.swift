@@ -1,15 +1,17 @@
 import SwiftUI
 import ForgeUI
 
+/// Legacy view — superseded by `RootView` in Phase 4E.
+///
+/// Kept as a thin wrapper around `RootView` so any remaining references
+/// (previews, external callers) continue to compile. New code should use
+/// `RootView` directly.
 struct ContentView: View {
-    let viewModel: ToolsViewModel?
-
     var body: some View {
-        ToolsView(viewModel: viewModel)
-            .frame(minWidth: 480, minHeight: 320)
+        RootView()
     }
 }
 
 #Preview {
-    ContentView(viewModel: nil)
+    ContentView()
 }
