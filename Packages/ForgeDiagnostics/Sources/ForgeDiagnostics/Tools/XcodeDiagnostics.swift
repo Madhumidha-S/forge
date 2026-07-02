@@ -50,39 +50,28 @@ public struct XcodeDiagnostics: ToolDiagnostics, @unchecked Sendable {
     public func diagnose(context: DiagnosticsContext) async throws -> [DiagnosticIssue] {
         var issues: [DiagnosticIssue] = []
 
-        let developerURL = developerDirectory ?? Self.defaultDeveloperDirectory(home: context.homeDirectory)
-        let simulatorURL = coreSimulatorDirectory ?? Self.defaultCoreSimulatorDirectory(home: context.homeDirectory)
-
-        if let derivedData = developerURL?.appendingPathComponent("DerivedData", isDirectory: true) {
+        // Explicit paths only — if the caller doesn't inject a path for
+        // a scan, that scan is skipped. The UI layer (Phase 4E) resolves
+        // real home-directory paths and injects them. Falling back here
+        // would make tests non-deterministic and accidentally scan the
+        // user's machine.
+        if let developerDirectory {
+            let derivedData = developerDirectory.appendingPathComponent("DerivedData", isDirectory: true)
             issues.append(contentsOf: scanDerivedData(at: derivedData))
-        }
-        if let archives = developerURL?.appendingPathComponent("Archives", isDirectory: true) {
+            let archives = developerDirectory.appendingPathComponent("Archives", isDirectory: true)
             issues.append(contentsOf: scanArchives(at: archives))
+            let deviceSupportiOS = developerDirectory.appendingPathComponent("iOS DeviceSupport", isDirectory: true)
+            issues.append(contentsOf: scanDeviceSupport(at: deviceSupportiOS, platform: "iOS"))
+            let deviceSupporttvOS = developerDirectory.appendingPathComponent("tvOS DeviceSupport", isDirectory: true)
+            issues.append(contentsOf: scanDeviceSupport(at: deviceSupporttvOS, platform: "tvOS"))
+            let deviceSupportwatchOS = developerDirectory.appendingPathComponent("watchOS DeviceSupport", isDirectory: true)
+            issues.append(contentsOf: scanDeviceSupport(at: deviceSupportwatchOS, platform: "watchOS"))
         }
-        if let simulatorURL {
-            issues.append(contentsOf: scanSimulatorCaches(at: simulatorURL))
-        }
-        if let deviceSupport = developerURL?.appendingPathComponent("iOS DeviceSupport", isDirectory: true) {
-            issues.append(contentsOf: scanDeviceSupport(at: deviceSupport, platform: "iOS"))
-        }
-        if let deviceSupport = developerURL?.appendingPathComponent("tvOS DeviceSupport", isDirectory: true) {
-            issues.append(contentsOf: scanDeviceSupport(at: deviceSupport, platform: "tvOS"))
-        }
-        if let deviceSupport = developerURL?.appendingPathComponent("watchOS DeviceSupport", isDirectory: true) {
-            issues.append(contentsOf: scanDeviceSupport(at: deviceSupport, platform: "watchOS"))
+        if let coreSimulatorDirectory {
+            issues.append(contentsOf: scanSimulatorCaches(at: coreSimulatorDirectory))
         }
 
         return issues
-    }
-
-    // MARK: - Default paths
-
-    private static func defaultDeveloperDirectory(home: URL?) -> URL? {
-        home?.appendingPathComponent("Library/Developer/Xcode", isDirectory: true)
-    }
-
-    private static func defaultCoreSimulatorDirectory(home: URL?) -> URL? {
-        home?.appendingPathComponent("Library/Developer/CoreSimulator", isDirectory: true)
     }
 
     // MARK: - Scans
