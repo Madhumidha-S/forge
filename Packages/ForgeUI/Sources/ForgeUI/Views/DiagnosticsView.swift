@@ -19,6 +19,8 @@ import ForgeDesign
 public struct DiagnosticsView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @StateObject private var viewModel: DiagnosticsViewModel
+    @State private var previewIssue: DiagnosticIssue?
+    @State private var preview: CleanupPreview?
 
     public init(viewModel: DiagnosticsViewModel? = nil) {
         if let viewModel {
@@ -65,6 +67,14 @@ public struct DiagnosticsView: View {
                 await viewModel.analyze()
             }
         }
+        .sheet(item: $previewIssue) { issue in
+            // "Apply Fix" on an IssueCard sets `previewIssue` and kicks off
+            // a dry-run inline. By the time the sheet opens, `preview`
+            // is populated and ApplyFixSheet shows the real report
+            // instead of the loading spinner.
+            ApplyFixSheet(issue: issue, preview: preview)
+                .environmentObject(environment)
+        }
     }
 
     // MARK: - Subtitle
@@ -103,7 +113,10 @@ public struct DiagnosticsView: View {
                         .background(Capsule().fill(color.opacity(0.15)))
                 }
                 ForEach(issues) { issue in
-                    IssueCard(issue: issue)
+                    IssueCard(issue: issue) {
+                        previewIssue = issue
+                        Task { await loadPreview(for: issue) }
+                    }
                 }
             }
         }
@@ -138,6 +151,7 @@ public struct DiagnosticsView: View {
 
 private struct IssueCard: View {
     let issue: DiagnosticIssue
+    let onApplyFix: () -> Void
 
     var body: some View {
         ForgeCard {
@@ -181,8 +195,12 @@ private struct IssueCard: View {
                     HStack {
                         Spacer()
                         Button("Apply Fix") {
-                            // Phase 4I/4J wire this to the appropriate
-                            // cleanup action or preview sheet.
+                            // Defer the apply-action to the parent
+                            // DiagnosticsView — IssueCard is a private
+                            // struct that can't access the parent's
+                            // @State properties directly. The closure
+                            // captures the issue + the parent's method.
+                            onApplyFix()
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -206,6 +224,70 @@ private struct IssueCard: View {
         case .critical: return Palette.critical
         case .warning:  return Palette.warning
         case .info:     return Palette.textSecondary
+        }
+    }
+}
+
+// MARK: - Apply Fix sheet
+
+/// Sheet content shown when the user taps "Apply Fix" on an issue card.
+/// Looks up the cleanup action for the issue's tool, runs a dry-run,
+/// and shows the same `CleanupPreviewSheet` the Cleanup screen uses.
+private struct ApplyFixSheet: View {
+    @EnvironmentObject private var environment: AppEnvironment
+    let issue: DiagnosticIssue
+    let preview: CleanupPreview?
+
+    var body: some View {
+        if let preview {
+            CleanupPreviewSheet(preview: preview)
+        } else {
+            VStack(spacing: Spacing.l) {
+                ProgressView()
+                Text("Scanning \(issue.toolID.rawValue.capitalized)…")
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.textSecondary)
+            }
+            .padding(Spacing.xl)
+            .frame(minWidth: 400, minHeight: 300)
+        }
+    }
+}
+
+// MARK: - Preview loading (DiagnosticsView extension)
+
+extension DiagnosticsView {
+    /// Looks up the cleanup action for the given issue's tool and runs
+    /// a dry-run. The result is stored in `preview` state so the sheet
+    /// picks it up on its next render.
+    func loadPreview(for issue: DiagnosticIssue) async {
+        let actions = await environment.cleanupServiceRegistry.availableActions()
+        guard let action = Self.firstAction(matching: issue.toolID, in: actions) else {
+            preview = nil
+            return
+        }
+        do {
+            let report = try await action.dryRun()
+            preview = CleanupPreview(
+                opportunity: nil,
+                report: report
+            )
+        } catch {
+            preview = nil
+        }
+    }
+
+    /// Best-effort lookup of a cleanup action whose display target matches
+    /// the given tool ID. Returns the first hit; the cleanup registry
+    /// typically has one action per tool.
+    static func firstAction(
+        matching toolID: ToolID,
+        in actions: [any CleanupActionProtocol]
+    ) -> (any CleanupActionProtocol)? {
+        let haystack = toolID.rawValue.lowercased()
+        return actions.first { action in
+            let target = "\(action.id) \(action.displayName)".lowercased()
+            return target.contains(haystack)
         }
     }
 }

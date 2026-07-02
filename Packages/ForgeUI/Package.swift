@@ -14,6 +14,7 @@ let package = Package(
     dependencies: [
         .package(path: "../ForgeCore"),
         .package(path: "../ForgeDetectors"),
+        .package(path: "../ForgeDiagnostics"),
     ],
     targets: [
         .target(
@@ -21,6 +22,7 @@ let package = Package(
             dependencies: [
                 .product(name: "ForgeCore", package: "ForgeCore"),
                 .product(name: "ForgeDetectors", package: "ForgeDetectors"),
+                .product(name: "ForgeDiagnostics", package: "ForgeDiagnostics"),
             ]
         ),
         .testTarget(
