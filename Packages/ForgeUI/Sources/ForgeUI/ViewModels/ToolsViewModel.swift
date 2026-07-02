@@ -66,6 +66,15 @@ public final class ToolsViewModel: ObservableObject {
         }
     }
 
+    /// Sorts the current tool list using the given comparator. Provided
+    /// as a method (rather than mutating `tools` in place from the view)
+    /// because `tools` is `private(set)` — external callers can't trigger
+    /// the setter via in-place mutation. The ToolsView's sort dropdown
+    /// uses this to reorder rows.
+    public func sort(by comparator: KeyPathComparator<ToolUIModel>) {
+        tools.sort(using: comparator)
+    }
+
     /// Clears the current error message.
     public func dismissError() {
         lastError = nil

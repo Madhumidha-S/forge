@@ -30,6 +30,9 @@ public struct ToolsView: View {
     @EnvironmentObject private var router: AppRouter
     @ObservedObject private var viewModel: ToolsViewModel
 
+    @State private var sortField: ToolsSortField = .name
+    @State private var sortDirection: SortDirection = .ascending
+
     public init(viewModel: ToolsViewModel? = nil) {
         self.viewModel = viewModel ?? ToolsViewModel(
             registry: PreviewStubRegistry(),
@@ -71,12 +74,58 @@ public struct ToolsView: View {
         }
         .navigationTitle("Tools")
         .searchable(text: .constant(""))
+        .toolbar {
+            // Custom sort UI in the toolbar. The macOS 14 `Table` type-checker
+            // can't handle 6 columns × `value:` keypaths × `sortOrder:`
+            // binding, so clickable column-header sorting is off the table.
+            // A toolbar dropdown sidesteps the generic entirely while still
+            // giving the user full sort UX (field + direction).
+            ToolbarItem(placement: .primaryAction) {
+                sortMenu
+            }
+        }
+        .onChange(of: sortField) { _, _ in applySort() }
+        .onChange(of: sortDirection) { _, _ in applySort() }
+    }
 
-        // Sortable columns: `sortOrder` state and `.onChange` handler
-        // were removed in Phase 4F.1 because the macOS 14 `Table`
-        // type-checker can't handle 6 columns × `value:` keypaths ×
-        // `sortOrder:` binding. Both pieces come back when we wire
-        // clickable sorting — see Phase 4F.1 commit message.
+    /// Sort dropdown — two inline pickers (field + direction) plus a
+    /// label showing the current sort.
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort by", selection: $sortField) {
+                ForEach(ToolsSortField.allCases) { field in
+                    Label(field.label, systemImage: field.systemImage).tag(field)
+                }
+            }
+            Picker("Order", selection: $sortDirection) {
+                Text("Ascending").tag(SortDirection.ascending)
+                Text("Descending").tag(SortDirection.descending)
+            }
+        } label: {
+            Label("Sort", systemImage: "arrow.up.arrow.down")
+        }
+        .menuStyle(.borderlessButton)
+    }
+
+    /// Re-sorts the tool list using the current `sortField` +
+    /// `sortDirection`. `KeyPathComparator` handles optional types (nil
+    /// sorts to one end depending on direction). Delegates to
+    /// `viewModel.sort(by:)` because `tools` is `private(set)` and can't
+    /// be mutated in place from outside the view model.
+    private func applySort() {
+        let order: SortOrder = sortDirection == .ascending ? .forward : .reverse
+        let comparator: KeyPathComparator<ToolUIModel>
+        switch sortField {
+        case .name:
+            comparator = KeyPathComparator(\ToolUIModel.displayName, order: order)
+        case .version:
+            comparator = KeyPathComparator(\ToolUIModel.version, order: order)
+        case .diskUsage:
+            comparator = KeyPathComparator(\ToolUIModel.diskUsageBytes, order: order)
+        case .lastChecked:
+            comparator = KeyPathComparator(\ToolUIModel.lastChecked, order: order)
+        }
+        viewModel.sort(by: comparator)
     }
 
     /// Bridges the table's optional selection into the router. The table
@@ -165,6 +214,44 @@ private struct LastCheckedCell: View {
         Text(tool.lastChecked, style: .relative)
             .foregroundStyle(Palette.textSecondary)
     }
+}
+
+// MARK: - Sort types
+
+/// Fields the user can sort the Tools table by. Each case maps to a
+/// `KeyPath` on `ToolUIModel`; the sort comparator is built in
+/// `applySort()`.
+enum ToolsSortField: String, CaseIterable, Identifiable, Hashable {
+    case name
+    case version
+    case diskUsage
+    case lastChecked
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .name:        return "Name"
+        case .version:     return "Version"
+        case .diskUsage:   return "Disk Usage"
+        case .lastChecked: return "Last Checked"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .name:        return "textformat"
+        case .version:     return "number"
+        case .diskUsage:   return "internaldrive"
+        case .lastChecked: return "clock"
+        }
+    }
+}
+
+/// Sort direction for the Tools table.
+enum SortDirection: Hashable {
+    case ascending
+    case descending
 }
 
 // MARK: - Stub bridges
