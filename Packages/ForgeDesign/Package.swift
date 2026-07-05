@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 5.9
 // ForgeDesign — design system tokens (typography, spacing, colors, materials,
 // surface views) for the Forge app.
 //

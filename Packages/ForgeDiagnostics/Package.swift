@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 5.9
 // ForgeDiagnostics — Developer Environment Intelligence Engine.
 //
 // Hosts the `DiagnosticsEngine` actor and per-tool `ToolDiagnostics`
