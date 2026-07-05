@@ -8,6 +8,8 @@ import ForgeUI
 struct ForgeApp: App {
     @StateObject private var environment: AppEnvironment
     @StateObject private var toolsViewModel: ToolsViewModel
+    @StateObject private var activityStore = ActivityStore()
+    @StateObject private var settingsStore = SettingsStore()
 
     init() {
         // ---- Detectors ----
@@ -51,6 +53,8 @@ struct ForgeApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(environment)
+                .environmentObject(activityStore)
+                .environmentObject(settingsStore)
         }
         .modelContainer(environment.persistenceController.container)
         .windowStyle(.titleBar)

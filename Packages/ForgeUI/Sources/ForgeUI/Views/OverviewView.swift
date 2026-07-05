@@ -17,6 +17,7 @@ import ForgeDesign
 /// the published `issues` array.
 public struct OverviewView: View {
     @EnvironmentObject private var environment: AppEnvironment
+    @EnvironmentObject private var router: AppRouter
     @StateObject private var viewModel: OverviewViewModel
 
     public init(viewModel: OverviewViewModel? = nil) {
@@ -120,7 +121,7 @@ public struct OverviewView: View {
                     .font(Typography.caption)
                     .foregroundStyle(Palette.textSecondary)
                 Button("Review Cleanup Plan") {
-                    // Phase 4J wires this to the CleanupView preview sheet.
+                    router.selectSection(.cleanup)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)

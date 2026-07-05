@@ -15,6 +15,7 @@ let package = Package(
         .package(path: "../ForgeCore"),
         .package(path: "../ForgeDetectors"),
         .package(path: "../ForgeDiagnostics"),
+        .package(path: "../ForgeDesign"),
     ],
     targets: [
         .target(
@@ -23,6 +24,7 @@ let package = Package(
                 .product(name: "ForgeCore", package: "ForgeCore"),
                 .product(name: "ForgeDetectors", package: "ForgeDetectors"),
                 .product(name: "ForgeDiagnostics", package: "ForgeDiagnostics"),
+                .product(name: "ForgeDesign", package: "ForgeDesign"),
             ]
         ),
         .testTarget(
