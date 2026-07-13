@@ -16,14 +16,17 @@ public final class ToolsViewModel: ObservableObject {
 
     private let registry: any DetectorRegistryProtocol
     private let persistence: any PersistenceControllerProtocol
+    private let onEvent: ((String) -> Void)?
     private var scanInFlight = false
 
     public init(
         registry: any DetectorRegistryProtocol,
-        persistence: any PersistenceControllerProtocol
+        persistence: any PersistenceControllerProtocol,
+        onEvent: ((String) -> Void)? = nil
     ) {
         self.registry = registry
         self.persistence = persistence
+        self.onEvent = onEvent
     }
 
     /// Re-runs all registered detectors, persists the results, and updates
@@ -49,8 +52,10 @@ public final class ToolsViewModel: ObservableObject {
             healthyCount = tools.filter { $0.isHealthy }.count
             issuesCount = totalCount - healthyCount
             lastScanDate = tools.map { $0.lastChecked }.max()
+            onEvent?("Tool scan complete: \(tools.count) tools, \(healthyCount) healthy")
         } catch {
             lastError = error.localizedDescription
+            onEvent?("Tool scan failed: \(error.localizedDescription)")
         }
     }
 

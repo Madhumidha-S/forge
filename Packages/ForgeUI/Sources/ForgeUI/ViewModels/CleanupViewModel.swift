@@ -24,9 +24,14 @@ public final class CleanupViewModel: ObservableObject {
     @Published public private(set) var lastError: String?
 
     private let environment: AppEnvironment
+    private let onEvent: ((String) -> Void)?
 
-    public init(environment: AppEnvironment) {
+    public init(
+        environment: AppEnvironment,
+        onEvent: ((String) -> Void)? = nil
+    ) {
         self.environment = environment
+        self.onEvent = onEvent
     }
 
     /// Convenience initializer for SwiftUI previews that don't have an
@@ -47,6 +52,7 @@ public final class CleanupViewModel: ObservableObject {
         let actions = await environment.cleanupServiceRegistry.availableActions()
         let issues = (try? await environment.diagnosticsEngine.analyze()) ?? []
         opportunities = Self.pair(actions: actions, issues: issues)
+        onEvent?("Cleanup scan complete: \(opportunities.count) recommendations")
     }
 
     /// Runs the dry-run for a specific cleanup action and stores the

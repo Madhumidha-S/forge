@@ -18,9 +18,14 @@ public final class OverviewViewModel: ObservableObject {
     @Published public private(set) var lastAnalyzedAt: Date?
 
     private let diagnosticsEngine: any DiagnosticsEngineProtocol
+    private let onEvent: ((String) -> Void)?
 
-    public init(diagnosticsEngine: any DiagnosticsEngineProtocol) {
+    public init(
+        diagnosticsEngine: any DiagnosticsEngineProtocol,
+        onEvent: ((String) -> Void)? = nil
+    ) {
         self.diagnosticsEngine = diagnosticsEngine
+        self.onEvent = onEvent
     }
 
     /// Convenience initializer for SwiftUI previews that don't have an
@@ -38,6 +43,7 @@ public final class OverviewViewModel: ObservableObject {
             let result = try await diagnosticsEngine.analyze()
             issues = result
             lastAnalyzedAt = Date()
+            onEvent?("Diagnostics complete: \(result.count) issues")
         } catch {
             // Phase 4F.2 keeps the UI resilient: on failure, show the
             // last good issues (or empty) and update lastAnalyzedAt so the
@@ -45,6 +51,7 @@ public final class OverviewViewModel: ObservableObject {
             // wire the error banner.
             issues = []
             lastAnalyzedAt = Date()
+            onEvent?("Diagnostics scan failed: \(error.localizedDescription)")
         }
     }
 

@@ -19,9 +19,14 @@ public final class DiagnosticsViewModel: ObservableObject {
     @Published public private(set) var totalReclaimableBytes: UInt64 = 0
 
     private let diagnosticsEngine: any DiagnosticsEngineProtocol
+    private let onEvent: ((String) -> Void)?
 
-    public init(diagnosticsEngine: any DiagnosticsEngineProtocol) {
+    public init(
+        diagnosticsEngine: any DiagnosticsEngineProtocol,
+        onEvent: ((String) -> Void)? = nil
+    ) {
         self.diagnosticsEngine = diagnosticsEngine
+        self.onEvent = onEvent
     }
 
     /// Convenience initializer for SwiftUI previews.
@@ -38,9 +43,11 @@ public final class DiagnosticsViewModel: ObservableObject {
             let result = try await diagnosticsEngine.analyze()
             apply(result)
             lastAnalyzedAt = Date()
+            onEvent?("Diagnostics refreshed: \(critical.count) critical, \(warnings.count) warnings, \(info.count) info")
         } catch {
             apply([])
             lastAnalyzedAt = Date()
+            onEvent?("Diagnostics refresh failed: \(error.localizedDescription)")
         }
     }
 

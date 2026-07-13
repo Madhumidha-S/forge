@@ -30,9 +30,14 @@ public final class StorageViewModel: ObservableObject {
     @Published public private(set) var totalReclaimableBytes: UInt64 = 0
 
     private let diagnosticsEngine: any DiagnosticsEngineProtocol
+    private let onEvent: ((String) -> Void)?
 
-    public init(diagnosticsEngine: any DiagnosticsEngineProtocol) {
+    public init(
+        diagnosticsEngine: any DiagnosticsEngineProtocol,
+        onEvent: ((String) -> Void)? = nil
+    ) {
         self.diagnosticsEngine = diagnosticsEngine
+        self.onEvent = onEvent
     }
 
     /// Convenience initializer for SwiftUI previews.
@@ -52,7 +57,9 @@ public final class StorageViewModel: ObservableObject {
         } catch {
             apply([])
             lastAnalyzedAt = Date()
+            onEvent?("Storage scan failed: \(error.localizedDescription)")
         }
+        onEvent?("Storage scan complete: \(ByteCountFormatter.string(fromByteCount: Int64(totalReclaimableBytes), countStyle: .binary)) reclaimable across \(storageByTool.count) tools")
     }
 
     private func apply(_ issues: [DiagnosticIssue]) {
