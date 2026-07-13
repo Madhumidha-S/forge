@@ -16,16 +16,25 @@ public final class OverviewViewModel: ObservableObject {
     @Published public private(set) var isAnalyzing = false
     @Published public private(set) var issues: [DiagnosticIssue] = []
     @Published public private(set) var lastAnalyzedAt: Date?
+    /// True once at least one analyze() call has completed successfully.
+    /// UI uses this to distinguish "haven't scanned yet" from "scan found nothing".
+    @Published public private(set) var hasScanned = false
 
     private let diagnosticsEngine: any DiagnosticsEngineProtocol
     private let onEvent: ((String) -> Void)?
+    private let toolsCountProvider: () -> Int
+    private let onAnalyzeFailure: (() -> Void)?
 
     public init(
         diagnosticsEngine: any DiagnosticsEngineProtocol,
-        onEvent: ((String) -> Void)? = nil
+        onEvent: ((String) -> Void)? = nil,
+        toolsCountProvider: @escaping () -> Int = { 0 },
+        onAnalyzeFailure: (() -> Void)? = nil
     ) {
         self.diagnosticsEngine = diagnosticsEngine
         self.onEvent = onEvent
+        self.toolsCountProvider = toolsCountProvider
+        self.onAnalyzeFailure = onAnalyzeFailure
     }
 
     /// Convenience initializer for SwiftUI previews that don't have an
@@ -43,15 +52,13 @@ public final class OverviewViewModel: ObservableObject {
             let result = try await diagnosticsEngine.analyze()
             issues = result
             lastAnalyzedAt = Date()
+            hasScanned = true
             onEvent?("Diagnostics complete: \(result.count) issues")
         } catch {
-            // Phase 4F.2 keeps the UI resilient: on failure, show the
-            // last good issues (or empty) and update lastAnalyzedAt so the
-            // UI reflects the attempt. Errors surface in Phase 4G when we
-            // wire the error banner.
             issues = []
             lastAnalyzedAt = Date()
             onEvent?("Diagnostics scan failed: \(error.localizedDescription)")
+            onAnalyzeFailure?()
         }
     }
 
@@ -64,7 +71,11 @@ public final class OverviewViewModel: ObservableObject {
     ///   info     = 0.5 points off each (rounded down)
     /// Floors at 0. This is a placeholder heuristic — Phase 4G may
     /// refine it based on telemetry (e.g. weight by storage impact).
-    public var healthScore: Int {
+    /// Health score 0–100, derived from real issue severity weights.
+    /// Returns nil until the first scan completes — UI must show
+    /// "Not yet analyzed" rather than a default of 100.
+    public var healthScore: Int? {
+        guard hasScanned else { return nil }
         let criticalCount = issues.filter { $0.severity == .critical }.count
         let warningCount = issues.filter { $0.severity == .warning }.count
         let infoCount = issues.filter { $0.severity == .info }.count
@@ -72,13 +83,20 @@ public final class OverviewViewModel: ObservableObject {
         return max(0, 100 - penalty)
     }
 
-    public var healthyCount: Int {
-        // A tool is "healthy" if it has at least one detection and zero
-        // critical/warning issues. For Phase 4F.2 we approximate this by
-        // counting tools that have at least one info-only issue or no
-        // issues at all. Phase 4G will refine using per-tool detection
-        // status.
-        max(8 - issues.filter { $0.severity == .warning || $0.severity == .critical }.count, 0)
+    /// Count of detected tools that are healthy. Returns the count of
+    /// detected tools minus the count of warning/critical issues
+    /// (each issue tied to a single tool), floored at 0. Returns nil
+    /// until the first scan completes.
+    public var healthyCount: Int? {
+        guard hasScanned else { return nil }
+        let flagged = issues.filter { $0.severity == .warning || $0.severity == .critical }.count
+        return max(toolsCountProvider() - flagged, 0)
+    }
+
+    /// Total detected tools — comes from the tools view model passed in via
+    /// the toolsCountProvider closure, not from a hardcoded constant.
+    public var detectedToolsCount: Int {
+        toolsCountProvider()
     }
 
     public var warningCount: Int {
