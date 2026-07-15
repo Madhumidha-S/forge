@@ -8,6 +8,10 @@ import ForgeUI
 struct ForgeApp: App {
     @StateObject private var environment: AppEnvironment
     @StateObject private var toolsViewModel: ToolsViewModel
+    @StateObject private var overviewViewModel: OverviewViewModel
+    @StateObject private var diagnosticsViewModel: DiagnosticsViewModel
+    @StateObject private var storageViewModel: StorageViewModel
+    @StateObject private var cleanupViewModel: CleanupViewModel
     @StateObject private var activityStore = ActivityStore()
     @StateObject private var settingsStore = SettingsStore()
 
@@ -29,23 +33,84 @@ struct ForgeApp: App {
             diagnosticsEngine: liveDiagnostics
         )
         _environment = StateObject(wrappedValue: env)
+
+        // Construct every ViewModel up front from the shared environment
+        // and inject them via .environmentObject at the scene root. Views
+        // read them through @EnvironmentObject so the data is the real
+        // data, not a preview stub. Per-view init(viewModel:) fallbacks
+        // are gone. Each VM gets an `onEvent` closure that forwards its
+        // lifecycle messages to ActivityStore so the Activity screen
+        // shows real, correlated events.
+        //
+        // Access `_activityStore.wrappedValue` directly (the StateObject
+        // backing storage, not the property-wrapper accessor) to avoid
+        // tripping Swift 6's "escaping closure captures mutating self"
+        // check. The `_activityStore` storage is initialised by the
+        // `@StateObject ... = ActivityStore()` declaration before this
+        // init body runs, so it is safe to read here.
+        let store = self._activityStore.wrappedValue
+        let log: (String) -> Void = { message in
+            store.info(message)
+        }
+
+        // Construct toolsViewModel first so overviewVM can capture it for its
+        // toolsCountProvider closure (OverviewViewModel reads the live detected
+        // tool count to avoid fabricating a hardcoded "8 healthy" stat).
         let viewModel = ToolsViewModel(
             registry: env.detectorRegistry,
-            persistence: env.persistenceController
+            persistence: env.persistenceController,
+            onEvent: log
         )
         _toolsViewModel = StateObject(wrappedValue: viewModel)
 
+        let overviewVM = OverviewViewModel(
+            diagnosticsEngine: env.diagnosticsEngine,
+            onEvent: log,
+            toolsCountProvider: { [viewModel] in viewModel.totalCount }
+        )
+        _overviewViewModel = StateObject(wrappedValue: overviewVM)
+
+        let diagnosticsVM = DiagnosticsViewModel(
+            diagnosticsEngine: env.diagnosticsEngine,
+            onEvent: log
+        )
+        _diagnosticsViewModel = StateObject(wrappedValue: diagnosticsVM)
+
+        let storageVM = StorageViewModel(
+            diagnosticsEngine: env.diagnosticsEngine,
+            onEvent: log
+        )
+        _storageViewModel = StateObject(wrappedValue: storageVM)
+
+        let cleanupVM = CleanupViewModel(
+            environment: env,
+            onEvent: log
+        )
+        _cleanupViewModel = StateObject(wrappedValue: cleanupVM)
+
         // ---- Launch sequence ----
         // Register all detectors, register all diagnostic providers, then
-        // kick off the first scan.
+        // kick off the first scan for every ViewModel.
         Task { @MainActor in
+            store.info("Forge launched")
+
+            store.info("Registering \(Self.detectors.count) detectors…")
             for detector in Self.detectors {
                 await registry.register(detector)
             }
+            store.info("Detectors ready (\(Self.detectors.count))")
+
+            store.info("Registering \(Self.diagnosticProviders.count) diagnostic providers…")
             for provider in Self.diagnosticProviders {
                 await liveDiagnostics.register(provider)
             }
+            store.info("Diagnostics engine ready (\(Self.diagnosticProviders.count) providers)")
+
             await viewModel.refresh()
+            await overviewVM.analyze()
+            await diagnosticsVM.analyze()
+            await storageVM.analyze()
+            await cleanupVM.refresh()
         }
     }
 
@@ -55,6 +120,11 @@ struct ForgeApp: App {
                 .environmentObject(environment)
                 .environmentObject(activityStore)
                 .environmentObject(settingsStore)
+                .environmentObject(toolsViewModel)
+                .environmentObject(overviewViewModel)
+                .environmentObject(diagnosticsViewModel)
+                .environmentObject(storageViewModel)
+                .environmentObject(cleanupViewModel)
         }
         .modelContainer(environment.persistenceController.container)
         .windowStyle(.titleBar)
