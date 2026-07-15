@@ -1,215 +1,309 @@
 import SwiftUI
-import Charts
-import Foundation
 import ForgeCore
 import ForgeDiagnostics
 import ForgeDesign
 
-// MARK: - ByteCountFormatStyle
-//
-// SwiftUI's `AxisMarks(format:)` requires a `FormatStyle` whose
-// `FormatInput == Plottable` and `FormatOutput == String`. Foundation's
-// `ByteCountFormatter` predates the FormatStyle system and doesn't conform
-// to that protocol. This thin wrapper bridges the two so we can keep
-// byte-count labels on the chart axes.
-struct ByteCountFormatStyle: FormatStyle {
-    typealias FormatInput = Int64
-    typealias FormatOutput = String
-
-    func format(_ value: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: value, countStyle: .binary)
-    }
-
-    /// Static factory so call sites read `AxisMarks(format: .binaryBytes)`
-    /// rather than `AxisMarks(format: ByteCountFormatStyle())`.
-    static var binaryBytes: ByteCountFormatStyle { .init() }
-}
-
-/// Storage screen — three Swift Charts visualizations backed by
-/// `StorageViewModel`:
+/// Storage — Disk Utility style.
 ///
-/// - BarMark chart of storage by tool (sorted desc)
-/// - BarMark chart of storage by category (Runtimes / Build Artifacts /
-///   Models / Caches / CLI Tools, sorted desc)
-/// - LineMark chart of reclaimable-storage trend over the last 20 analyses
-/// - "Total reclaimable" callout at the top
+/// A document-style page that reads like a list of volumes, not a
+/// chart. Each tool gets a row with a thin horizontal usage bar
+/// showing its share of total reclaimable space. No Swift Charts, no
+/// boxed widgets, no analytics styling — just typography and a few
+/// hairline dividers.
 ///
-/// Charts use `Charts.Chart { ... }` (Swift Charts, macOS 13+).
+/// Layout:
+///   41.7 GB reclaimable · last analyzed 2m ago
+///   ───────────────────────────────────────────
+///   ● Caches 12 GB   ● Runtimes 8 GB   ● Models 6 GB
+///   ───────────────────────────────────────────
+///   Storage by Tool
+///   ───────────────────────────────────────────
+///   🛠  Xcode          ████████████     18.4 GB   44%
+///      Docker          ████████         12.0 GB   29%
+///      Ollama          █████             6.8 GB   16%
+///      ...
 public struct StorageView: View {
     @EnvironmentObject private var environment: AppEnvironment
-    @StateObject private var viewModel: StorageViewModel
+    @EnvironmentObject private var viewModel: StorageViewModel
 
-    public init(viewModel: StorageViewModel? = nil) {
-        if let viewModel {
-            _viewModel = StateObject(wrappedValue: viewModel)
-        } else {
-            _viewModel = StateObject(wrappedValue: StorageViewModel.preview())
-        }
-    }
+    public init() {}
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xl) {
-                SectionHeader(
-                    "Storage",
-                    subtitle: "Storage by tool and category"
-                )
-
-                reclaimableCallout
-                byToolChart
-                byCategoryChart
-                trendChart
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("Storage")
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    ToolbarStatus(
+                        status: viewModel.isAnalyzing ? .idle
+                             : viewModel.totalReclaimableBytes > 50_000_000_000 ? .critical
+                             : viewModel.totalReclaimableBytes > 0 ? .warnings
+                             : .healthy,
+                        lastScanRelative: viewModel.lastAnalyzedAt.map(Self.relativeString(from:))
+                    )
+                }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        Task { await viewModel.analyze() }
+                    } label: {
+                        Label("Analyze", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(viewModel.isAnalyzing)
+                    .keyboardShortcut("r", modifiers: .command)
+                    .help("Re-analyze storage")
+                }
             }
-            .padding(Spacing.xl)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .task {
+                if viewModel.totalReclaimableBytes == 0 {
+                    await viewModel.analyze()
+                }
+            }
+    }
+
+    // MARK: - Content switch
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.isAnalyzing && viewModel.storageByTool.isEmpty {
+            analyzingView
+        } else if !viewModel.isAnalyzing
+                    && viewModel.storageByTool.isEmpty
+                    && viewModel.lastAnalyzedAt == nil {
+            neverScannedView
+        } else if !viewModel.isAnalyzing
+                    && viewModel.storageByTool.isEmpty
+                    && viewModel.lastAnalyzedAt != nil {
+            emptyState
+        } else {
+            populatedView
+        }
+    }
+
+    private var analyzingView: some View {
+        VStack(spacing: Spacing.m) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Analyzing storage…")
+                .font(Typography.body)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await viewModel.analyze() }
-                } label: {
-                    Label("Analyze", systemImage: "arrow.clockwise")
-                }
+    }
+
+    private var neverScannedView: some View {
+        VStack(spacing: Spacing.s) {
+            Image(systemName: "internaldrive")
+                .font(.system(size: 36))
+                .foregroundStyle(Palette.tertiaryLabel)
+            Text("Storage analysis not yet performed.")
+                .font(Typography.body)
+                .foregroundStyle(.secondary)
+            Button("Run Analysis") { Task { await viewModel.analyze() } }
+                .controlSize(.regular)
                 .disabled(viewModel.isAnalyzing)
-            }
         }
-        .task {
-            if viewModel.totalReclaimableBytes == 0 {
-                await viewModel.analyze()
+        .padding(Spacing.xl)
+        .frame(maxWidth: .infinity, minHeight: 280)
+    }
+
+    private var emptyState: some View {
+        EmptyState(
+            systemImage: "internaldrive",
+            title: "No reclaimable storage detected",
+            description: "Run a scan to see what's using space."
+        ) {
+            Button("Scan Now") {
+                Task { await viewModel.analyze() }
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
         }
     }
 
-    // MARK: - Reclaimable callout
+    private var populatedView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Spacing.xl) {
+                header
+                categoryLegend
+                storageList
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.top, Spacing.s)
+            .padding(.bottom, Spacing.xxl)
+            .frame(maxWidth: 880, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
 
-    private var reclaimableCallout: some View {
-        ForgeCard {
-            VStack(alignment: .leading, spacing: Spacing.s) {
-                Text("Reclaimable")
-                    .font(Typography.headline)
-                    .foregroundStyle(Palette.textSecondary)
-                Text(ByteCountFormatter.string(fromByteCount: Int64(viewModel.totalReclaimableBytes), countStyle: .binary))
-                    .font(.system(size: 48, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(Palette.accent)
-                Text("\(viewModel.storageByTool.count) tools contributing")
+    // MARK: - Header
+
+    /// Page header — reclaimable bytes + relative last-analyzed time.
+    /// No big title; the window title bar shows "Storage".
+    private var header: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                Text(ByteCountFormatter.string(
+                    fromByteCount: Int64(viewModel.totalReclaimableBytes),
+                    countStyle: .binary
+                ))
+                    .font(Typography.monospacedDigitLarge)
+                    .foregroundStyle(Palette.textPrimary)
+                Text("reclaimable")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Palette.secondaryLabel)
+            }
+            if let last = viewModel.lastAnalyzedAt {
+                Text("Last analyzed \(last.formatted(.relative(presentation: .named)))")
                     .font(Typography.caption)
-                    .foregroundStyle(Palette.textSecondary)
+                    .foregroundStyle(Palette.tertiaryLabel)
             }
         }
     }
 
-    // MARK: - By tool chart
+    // MARK: - Category legend
 
+    /// Inline strip of category dots with labels and byte totals.
     @ViewBuilder
-    private var byToolChart: some View {
-        if !viewModel.storageByTool.isEmpty {
-            ForgeCard {
-                chartSection(title: "Storage by Tool", subtitle: "Reclaimable bytes per tool") {
-                    Chart(viewModel.storageByTool) { bucket in
-                        BarMark(
-                            x: .value("Tool", bucket.label),
-                            y: .value("Bytes", Int64(bucket.bytes))
-                        )
-                        .foregroundStyle(Palette.accent)
-                    }
-                    .chartYAxis {
-                        AxisMarks(format: ByteCountFormatStyle())
-                    }
-                    .frame(height: 240)
-                }
-            }
-        }
-    }
-
-    // MARK: - By category chart
-
-    @ViewBuilder
-    private var byCategoryChart: some View {
+    private var categoryLegend: some View {
         if !viewModel.storageByCategory.isEmpty {
-            ForgeCard {
-                chartSection(title: "Storage by Category", subtitle: "Reclaimable bytes per category") {
-                    Chart(viewModel.storageByCategory) { bucket in
-                        BarMark(
-                            x: .value("Category", bucket.label),
-                            y: .value("Bytes", Int64(bucket.bytes))
-                        )
-                        .foregroundStyle(byCategoryColor(bucket.id))
+            HStack(spacing: Spacing.l) {
+                ForEach(viewModel.storageByCategory) { bucket in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(categoryColor(bucket.id))
+                            .frame(width: 7, height: 7)
+                        Text(bucket.label)
+                            .font(Typography.subheadline)
+                            .foregroundStyle(Palette.textPrimary)
+                        Text(bucket.formattedBytes)
+                            .font(Typography.subheadline.monospacedDigit())
+                            .foregroundStyle(Palette.tertiaryLabel)
                     }
-                    .chartYAxis {
-                        AxisMarks(format: ByteCountFormatStyle())
+                }
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Storage list (Disk Utility style)
+
+    /// The list of tools with horizontal usage bars. This replaces
+    /// what was previously a Swift Charts bar chart. Each row:
+    /// tool icon · name · thin horizontal bar · reclaimable · %.
+    private var storageList: some View {
+        VStack(alignment: .leading, spacing: Spacing.s) {
+            SectionEyebrow("Storage by Tool")
+
+            VStack(spacing: 0) {
+                let total = viewModel.storageByTool.reduce(UInt64(0)) { $0 + $1.bytes }
+                ForEach(Array(viewModel.storageByTool.enumerated()), id: \.element.id) { idx, bucket in
+                    storageRow(bucket: bucket, total: total)
+                    if idx < viewModel.storageByTool.count - 1 {
+                        Divider().foregroundStyle(Palette.separator)
                     }
-                    .frame(height: 240)
                 }
             }
         }
     }
 
-    // MARK: - Trend chart
+    /// One row: tool icon · name · usage bar · reclaimable · %.
+    /// The bar fills proportional to bytes / total, drawn as a thin
+    /// rounded rectangle — no Swift Charts.
+    private func storageRow(bucket: StorageBucket, total: UInt64) -> some View {
+        let fraction = total > 0 ? Double(bucket.bytes) / Double(total) : 0
+        return HStack(spacing: Spacing.m) {
+            Image(systemName: toolSymbol(for: bucket.id))
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.secondaryLabel)
+                .frame(width: 18)
 
-    @ViewBuilder
-    private var trendChart: some View {
-        if viewModel.reclaimableTrend.count >= 2 {
-            ForgeCard {
-                chartSection(title: "Reclaimable Trend", subtitle: "Total reclaimable across recent analyses") {
-                    Chart(viewModel.reclaimableTrend) { point in
-                        LineMark(
-                            x: .value("Time", point.timestamp),
-                            y: .value("Bytes", Int64(point.bytes))
-                        )
-                        .foregroundStyle(Palette.accent)
-                        PointMark(
-                            x: .value("Time", point.timestamp),
-                            y: .value("Bytes", Int64(point.bytes))
-                        )
-                        .foregroundStyle(Palette.accent)
-                        .symbolSize(40)
-                    }
-                    .chartYAxis {
-                        AxisMarks(format: ByteCountFormatStyle())
-                    }
-                    .chartXAxis {
-                        AxisMarks(values: .automatic(desiredCount: 4)) { value in
-                            AxisGridLine()
-                            AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-                        }
-                    }
-                    .frame(height: 200)
-                }
-            }
+            Text(bucket.label)
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.textPrimary)
+                .lineLimit(1)
+                .frame(width: 100, alignment: .leading)
+
+            UsageBar(fraction: fraction)
+                .frame(height: 6)
+
+            Text(bucket.formattedBytes)
+                .font(Typography.subheadline.monospacedDigit())
+                .foregroundStyle(Palette.textPrimary)
+                .frame(width: 80, alignment: .trailing)
+
+            Text(percentString(bucket.bytes, total: total))
+                .font(Typography.subheadline.monospacedDigit())
+                .foregroundStyle(Palette.tertiaryLabel)
+                .frame(width: 44, alignment: .trailing)
         }
+        .padding(.vertical, 6)
     }
 
     // MARK: - Helpers
 
-    @ViewBuilder
-    private func chartSection<Content: View>(
-        title: String,
-        subtitle: String,
-        content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.s) {
-            Text(title)
-                .font(Typography.headline)
-                .foregroundStyle(Palette.textPrimary)
-            Text(subtitle)
-                .font(Typography.caption)
-                .foregroundStyle(Palette.textSecondary)
-            content()
+    private static func relativeString(from date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func percentString(_ bytes: UInt64, total: UInt64) -> String {
+        guard total > 0 else { return "0%" }
+        let pct = Double(bytes) / Double(total) * 100
+        return String(format: "%.0f%%", pct)
+    }
+
+    /// Tool icon symbol — mirrors what `ToolsView` uses so Storage
+    /// rows match the Tools table visually.
+    private func toolSymbol(for toolID: String) -> String {
+        switch toolID.lowercased() {
+        case "docker":      return "shippingbox.fill"
+        case "flutter":     return "bird"
+        case "git":         return "arrow.triangle.branch"
+        case "homebrew":    return "mug.fill"
+        case "java":        return "cup.and.saucer.fill"
+        case "node":        return "n.circle.fill"
+        case "ollama":      return "cpu.fill"
+        case "python":      return "chevron.left.forwardslash.chevron.right"
+        default:            return "wrench.and.screwdriver.fill"
         }
     }
 
-    /// Color palette for the by-category chart. Mirrors the SwiftUI
-    /// categorical palette so categories are visually distinct.
-    private func byCategoryColor(_ categoryId: String) -> Color {
+    /// Muted categorical palette for the legend dots.
+    private func categoryColor(_ categoryId: String) -> Color {
         switch categoryId {
-        case StorageCategory.runtimes.rawValue:        return .blue
-        case StorageCategory.buildArtifacts.rawValue: return .orange
-        case StorageCategory.models.rawValue:        return .purple
-        case StorageCategory.caches.rawValue:         return .teal
-        case StorageCategory.cliTools.rawValue:       return .pink
-        default:                                      return Palette.accent
+        case StorageCategory.runtimes.rawValue:        return Color.blue.opacity(0.85)
+        case StorageCategory.buildArtifacts.rawValue: return Color.orange.opacity(0.85)
+        case StorageCategory.models.rawValue:         return Color.purple.opacity(0.85)
+        case StorageCategory.caches.rawValue:         return Color.teal.opacity(0.85)
+        case StorageCategory.cliTools.rawValue:       return Color.pink.opacity(0.85)
+        default:                                      return Palette.accent.opacity(0.85)
+        }
+    }
+}
+
+// MARK: - UsageBar
+
+/// Thin horizontal usage bar — the visual primitive that replaces
+/// Swift Charts on this page. Pure geometry, no chart library.
+///
+/// Drawn as a track (very faint background) with a fill bar at the
+/// given fraction (0.0 to 1.0) of the available width. The fill is
+/// the system accent at reduced opacity so it reads as a quiet data
+/// indicator, not a chart element.
+struct UsageBar: View {
+    let fraction: Double
+    var color: Color = Palette.accent.opacity(0.78)
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Palette.separator.opacity(0.6))
+                Capsule()
+                    .fill(color)
+                    .frame(width: max(2, geo.size.width * max(0, min(fraction, 1))))
+            }
         }
     }
 }

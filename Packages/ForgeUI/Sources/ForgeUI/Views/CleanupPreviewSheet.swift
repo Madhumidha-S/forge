@@ -2,106 +2,122 @@ import SwiftUI
 import ForgeCore
 import ForgeDesign
 
-/// Dry-run preview sheet for the Cleanup screen.
+/// Dry-run preview sheet for the Cleanup screen — Finder-like.
 ///
-/// Shown when the user taps [Preview] on a row or "Preview All" at the
-/// bottom of the Cleanup table. Displays exactly what the cleanup action
-/// would touch — file paths, count, total reclaimable bytes — and makes
-/// clear that nothing has been deleted yet.
+/// Shown when the user taps [Preview Files] on the right pane of the
+/// Cleanup screen, or [Apply Fix] from Diagnostics. Displays the
+/// cleanup target's candidate file paths in a native `Table` with name
+/// and path columns, plus a footer with totals and action buttons.
 ///
-/// Phase 4 is dry-run only: no destructive execution. The sheet is the
-/// final gate before the user would commit to a real cleanup in a future
-/// phase.
+/// Phase 4 is dry-run only. The "Move to Trash" button is a stub — it
+/// dismisses the sheet without performing any destructive operation.
+/// Actual execution is deferred to a later phase.
 public struct CleanupPreviewSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
     let preview: CleanupPreview
+
+    @Environment(\.dismiss) private var dismiss
 
     public init(preview: CleanupPreview) {
         self.preview = preview
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.l) {
+        VStack(spacing: 0) {
             header
+            Divider()
+            fileList
+            Divider()
+            footer
+        }
+        .frame(minWidth: 640, minHeight: 480)
+    }
 
-            ForgeCard {
-                VStack(alignment: .leading, spacing: Spacing.s) {
-                    statRow("Target", value: preview.report.target)
-                    statRow("Paths", value: "\(preview.candidateCount)")
-                    statRow("Reclaimable", value: preview.totalFormatted)
-                    statRow("Scanned", value: preview.report.scannedAt.formatted(date: .abbreviated, time: .shortened))
-                }
+    // MARK: - Header
+
+    /// Finder-like toolbar: trash icon, target name, file count / total
+    /// size summary.
+    private var header: some View {
+        HStack(spacing: Spacing.m) {
+            Image(systemName: "trash")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading) {
+                Text(preview.opportunity?.displayName ?? preview.report.target)
+                    .font(Typography.headline)
+                Text("\(preview.candidateCount) files · \(preview.totalFormatted) total")
+                    .font(Typography.caption)
+                    .foregroundStyle(.secondary)
             }
+            Spacer()
+        }
+        .padding(Spacing.m)
+        .background(.bar)
+    }
 
-            if !preview.report.candidatePaths.isEmpty {
-                ForgeCard {
-                    VStack(alignment: .leading, spacing: Spacing.s) {
-                        Text("Would move to Trash")
-                            .font(Typography.subheadline)
-                            .foregroundStyle(Palette.textPrimary)
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                                ForEach(preview.report.candidatePaths.prefix(20), id: \.self) { path in
-                                    Text(path.path)
-                                        .font(Typography.caption.monospaced())
-                                        .foregroundStyle(Palette.textSecondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                if preview.report.candidatePaths.count > 20 {
-                                    Text("… and \(preview.report.candidatePaths.count - 20) more")
-                                        .font(Typography.caption)
-                                        .foregroundStyle(Palette.textTertiary)
-                                }
-                            }
-                        }
-                        .frame(maxHeight: 200)
+    // MARK: - File list
+
+    /// Native `Table` of every candidate path with Name and Path
+    /// columns. Falls back to an empty-state placeholder when the
+    /// dry-run returned no candidates.
+    @ViewBuilder
+    private var fileList: some View {
+        if preview.report.candidatePaths.isEmpty {
+            Spacer()
+            Text("No files to remove.")
+                .font(Typography.body)
+                .foregroundStyle(.secondary)
+            Spacer()
+        } else {
+            Table(preview.report.candidatePaths.map { FileRow(url: $0) }) {
+                TableColumn("Name") { row in
+                    HStack(spacing: Spacing.s) {
+                        Image(systemName: "doc")
+                            .foregroundStyle(.secondary)
+                        Text(row.url.lastPathComponent)
+                            .lineLimit(1)
                     }
                 }
-            }
-
-            Spacer()
-
-            HStack {
-                Spacer()
-                Button("Close") {
-                    dismiss()
+                TableColumn("Path") { row in
+                    Text(row.url.path)
+                        .font(Typography.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .width(min: 200, ideal: 320)
             }
-        }
-        .padding(Spacing.xl)
-        .frame(minWidth: 500, minHeight: 400)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-            HStack(spacing: Spacing.s) {
-                Image(systemName: "trash")
-                    .font(Typography.title)
-                    .foregroundStyle(Palette.warning)
-                Text("Cleanup Preview")
-                    .font(Typography.title2)
-                    .foregroundStyle(Palette.textPrimary)
-            }
-            Text("Nothing has been deleted. This is a dry-run.")
-                .font(Typography.caption)
-                .foregroundStyle(Palette.textSecondary)
+            .frame(minHeight: 360)
         }
     }
 
-    private func statRow(_ label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(Typography.caption)
-                .foregroundStyle(Palette.textSecondary)
-                .frame(width: 100, alignment: .leading)
-            Text(value)
+    // MARK: - Footer
+
+    /// Footer row — reclaimable total on the left, Cancel / Move to
+    /// Trash actions on the right. The Move button is a stub for now.
+    private var footer: some View {
+        HStack {
+            Text("Reclaimable: \(preview.totalFormatted)")
                 .font(Typography.body)
-                .foregroundStyle(Palette.textPrimary)
-            Spacer(minLength: 0)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Cancel") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+            Button("Move to Trash") { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(preview.report.candidatePaths.isEmpty)
         }
+        .padding(Spacing.m)
+        .background(.bar)
+    }
+
+    // MARK: - Row model
+
+    /// Identifiable wrapper around `URL` so the table can iterate the
+    /// preview's `candidatePaths`. Stable per-URL identity prevents the
+    /// table from rebuilding rows every render.
+    private struct FileRow: Identifiable {
+        let id = UUID()
+        let url: URL
     }
 }

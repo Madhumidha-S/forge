@@ -2,162 +2,253 @@ import SwiftUI
 import ForgeCore
 import ForgeDesign
 
-/// Activity screen — ring-buffer log of recent app events.
+/// Activity — Console.app style.
 ///
-/// Backed by `ActivityStore` (200-entry ring buffer with OSLog mirror).
-/// Renders entries newest-first with a Clear button in the toolbar
-/// and a level filter picker. Empty state uses a `ForgeCard`.
+/// A live, scrolling log of recent events rendered with monospaced
+/// typography and tight timestamps, in the spirit of Apple's Console.
+///
+/// Layout:
+///   ● Healthy · 42 events     [All ▾]      🗑
+///
+///   TODAY · 5
+///   ──────────────────────────────────────────
+///   ▎ 14:23:01  Forge launched
+///   ▎ 14:23:02  Registering 8 detectors
+///   ▎ 14:23:03  Detectors ready
 public struct ActivityView: View {
     @EnvironmentObject private var activityStore: ActivityStore
+    @EnvironmentObject private var router: AppRouter
 
-    /// Currently selected level filter. `nil` means show all levels.
-    @State private var levelFilter: ActivityStore.Entry.Level?
+    @State private var searchQuery = ""
+    @State private var levelFilter: LevelFilter = .all
 
     public init() {}
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.l) {
-            SectionHeader(
-                "Activity",
-                subtitle: subtitleText
-            )
-
-            if filteredEntries.isEmpty {
-                emptyState
+        Group {
+            if activityStore.entries.isEmpty {
+                EmptyState(
+                    systemImage: "clock.arrow.circlepath",
+                    title: "No activity yet",
+                    description: "Scans, refreshes, and cleanup actions will appear here as they happen."
+                )
+            } else if filteredEntries.isEmpty {
+                EmptyState(
+                    systemImage: "line.3.horizontal.decrease.circle",
+                    title: "No matching events",
+                    description: "Adjust your search or filter."
+                )
             } else {
-                entryList
+                timelineList
             }
         }
-        .padding(Spacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Activity")
+        .searchable(text: $searchQuery, placement: .toolbar, prompt: "Search events")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Picker(
-                    "Level",
-                    selection: $levelFilter
-                ) {
-                    Text("All").tag(ActivityStore.Entry.Level?.none)
-                    ForEach(ActivityStore.Entry.Level.allCases, id: \.self) { level in
-                        Text(level.rawValue.capitalized)
-                            .tag(ActivityStore.Entry.Level?.some(level))
-                    }
-                }
-                .pickerStyle(.menu)
+            ToolbarItem(placement: .navigation) {
+                ToolbarStatus(
+                    status: activityStore.entries.contains(where: { $0.level == .error || $0.level == .fault }) ? .critical
+                         : activityStore.entries.contains(where: { $0.level == .warning }) ? .warnings
+                         : .healthy,
+                    lastScanRelative: nil
+                )
             }
-            ToolbarItem(placement: .destructiveAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                levelFilterMenu
+
+                Divider().frame(height: 16)
+
                 Button(role: .destructive) {
                     activityStore.clear()
                 } label: {
                     Label("Clear", systemImage: "trash")
                 }
                 .disabled(activityStore.entries.isEmpty)
+                .help("Clear activity log")
             }
         }
     }
 
-    // MARK: - Subtitle
+    // MARK: - Filter
 
-    private var subtitleText: String {
-        let total = activityStore.entries.count
-        if total == 0 {
-            return "Recent app events"
+    enum LevelFilter: String, Hashable, CaseIterable {
+        case all, info, warning, error
+        var label: String {
+            switch self {
+            case .all: "All"
+            case .info: "Info"
+            case .warning: "Warning"
+            case .error: "Error"
+            }
         }
-        return "\(total) entries, in-memory ring buffer (last \(ActivityStore.maxEntries))"
     }
-
-    // MARK: - Filtered entries (newest first)
 
     private var filteredEntries: [ActivityStore.Entry] {
-        let all = activityStore.entries.reversed()
-        guard let level = levelFilter else { return Array(all) }
-        return all.filter { $0.level == level }
-    }
-
-    // MARK: - List
-
-    private var entryList: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: Spacing.s) {
-                ForEach(filteredEntries) { entry in
-                    entryRow(entry)
+        var entries: [ActivityStore.Entry] = Array(activityStore.entries.reversed())
+        if levelFilter != .all {
+            entries = entries.filter { entry in
+                switch levelFilter {
+                case .all: return true
+                case .info: return entry.level == .info || entry.level == .debug || entry.level == .notice
+                case .warning: return entry.level == .warning
+                case .error: return entry.level == .error || entry.level == .fault
                 }
             }
-            .padding(Spacing.m)
         }
-        .background(
-            RoundedRectangle(cornerRadius: Radius.l, style: .continuous)
-                .fill(Palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.l, style: .continuous)
-                .stroke(Palette.border, lineWidth: 0.5)
+        if !searchQuery.isEmpty {
+            let q = searchQuery.lowercased()
+            entries = entries.filter { entry in
+                entry.message.lowercased().contains(q) ||
+                (entry.subsystem ?? "").lowercased().contains(q)
+            }
+        }
+        return Array(entries)
+    }
+
+    private func severityColor(for level: ActivityStore.Entry.Level) -> Color {
+        switch level {
+        case .debug, .info, .notice: return Palette.textTertiary
+        case .warning: return Palette.warning
+        case .error, .fault: return Palette.critical
+        }
+    }
+
+    // MARK: - Day grouping
+
+    private struct DayGroup: Identifiable {
+        let id: String
+        let label: String
+        let entries: [ActivityStore.Entry]
+    }
+
+    private var groupedEntries: [DayGroup] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+
+        let todayEntries = filteredEntries.filter { calendar.isDate($0.timestamp, inSameDayAs: today) }
+        let yesterdayEntries = filteredEntries.filter { calendar.isDate($0.timestamp, inSameDayAs: yesterday) }
+        let earlierEntries = filteredEntries.filter { $0.timestamp < yesterday }
+
+        var groups: [DayGroup] = []
+        if !todayEntries.isEmpty { groups.append(DayGroup(id: "today", label: "Today", entries: todayEntries)) }
+        if !yesterdayEntries.isEmpty { groups.append(DayGroup(id: "yesterday", label: "Yesterday", entries: yesterdayEntries)) }
+        if !earlierEntries.isEmpty { groups.append(DayGroup(id: "earlier", label: "Earlier", entries: earlierEntries)) }
+        return groups
+    }
+
+    // MARK: - Timeline list
+
+    private var timelineList: some View {
+        List(selection: selectedEntryIDBinding) {
+            ForEach(groupedEntries) { group in
+                Section {
+                    ForEach(group.entries) { entry in
+                        ActivityTimelineRow(
+                            entry: entry,
+                            severityColor: severityColor(for: entry.level)
+                        )
+                        .tag(entry.id as UUID?)
+                    }
+                } header: {
+                    HStack(spacing: Spacing.s) {
+                        Text(group.label.uppercased())
+                            .font(Typography.caption2.weight(.semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(Palette.tertiaryLabel)
+                        Spacer()
+                        Text("\(group.entries.count)")
+                            .font(Typography.caption2.monospacedDigit())
+                            .foregroundStyle(Palette.tertiaryLabel)
+                    }
+                    .textCase(nil)
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .listStyle(.sidebar)
+    }
+
+    // MARK: - Level filter menu
+
+    private var levelFilterMenu: some View {
+        Menu {
+            ForEach(LevelFilter.allCases, id: \.self) { filter in
+                Button {
+                    levelFilter = filter
+                } label: {
+                    if levelFilter == filter {
+                        Label(filter.label, systemImage: "checkmark")
+                    } else {
+                        Text(filter.label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(levelFilter.label)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .font(Typography.subheadline)
+            .foregroundStyle(Palette.textPrimary)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    // MARK: - Selection
+
+    private var selectedEntryIDBinding: Binding<UUID?> {
+        Binding(
+            get: { router.selectedActivityEntryID },
+            set: { router.selectActivityEntry($0) }
         )
     }
 
-    private func entryRow(_ entry: ActivityStore.Entry) -> some View {
-        HStack(alignment: .top, spacing: Spacing.s) {
-            Image(systemName: levelIcon(entry.level))
-                .foregroundStyle(levelColor(entry.level))
-                .font(Typography.body)
-                .frame(width: 18, alignment: .center)
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                HStack(spacing: Spacing.s) {
-                    Text(entry.message)
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.textPrimary)
-                        .textSelection(.enabled)
-                    Spacer(minLength: 0)
-                    Text(entry.timestamp, style: .relative)
-                        .font(Typography.caption)
-                        .foregroundStyle(Palette.textTertiary)
-                        .monospacedDigit()
-                }
+    // MARK: - Row
+
+    /// Console.app-style row. Monospaced timestamp, monospaced
+    /// message, severity shown as a 3pt leading edge bar. Very tight
+    /// padding.
+    private struct ActivityTimelineRow: View {
+        let entry: ActivityStore.Entry
+        let severityColor: Color
+
+        var body: some View {
+            HStack(alignment: .center, spacing: Spacing.s) {
+                EdgeBar(severityColor, width: 2)
+                    .frame(maxHeight: .infinity)
+
+                Text(timestampString)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Palette.tertiaryLabel)
+                    .frame(width: 60, alignment: .leading)
+
+                Text(entry.message)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Palette.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: Spacing.s)
+
                 if let subsystem = entry.subsystem {
                     Text(subsystem)
-                        .font(Typography.caption2)
-                        .foregroundStyle(Palette.textTertiary)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Palette.tertiaryLabel)
+                        .lineLimit(1)
                 }
             }
+            .padding(.vertical, 1)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, Spacing.xxs)
-    }
 
-    // MARK: - Empty state
-
-    private var emptyState: some View {
-        ForgeCard {
-            VStack(alignment: .leading, spacing: Spacing.s) {
-                Text("No activity yet")
-                    .font(Typography.headline)
-                    .foregroundStyle(Palette.textPrimary)
-                Text("Scans, refreshes, and cleanup actions will appear here.")
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.textSecondary)
-            }
-        }
-    }
-
-    // MARK: - Level styling
-
-    private func levelIcon(_ level: ActivityStore.Entry.Level) -> String {
-        switch level {
-        case .debug:   return "circle.fill"
-        case .info:    return "info.circle.fill"
-        case .notice:  return "bell.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .error:   return "exclamationmark.octagon.fill"
-        case .fault:   return "flame.fill"
-        }
-    }
-
-    private func levelColor(_ level: ActivityStore.Entry.Level) -> Color {
-        switch level {
-        case .debug:   return Palette.textTertiary
-        case .info:    return .blue
-        case .notice:  return .teal
-        case .warning: return Palette.warning
-        case .error:   return Palette.critical
-        case .fault:   return .pink
+        private var timestampString: String {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss"
+            return formatter.string(from: entry.timestamp)
         }
     }
 }

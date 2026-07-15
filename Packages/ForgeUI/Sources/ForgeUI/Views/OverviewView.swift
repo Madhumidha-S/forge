@@ -3,198 +3,374 @@ import ForgeCore
 import ForgeDiagnostics
 import ForgeDesign
 
-/// Overview screen — environment health at a glance.
+/// Overview — Forge's landing page, designed like a system status
+/// board rather than a welcome screen. No hero, no marketing copy —
+/// just the numbers a developer wants to see at a glance.
 ///
-/// Layout matches the architecture doc's wireframe:
-/// - Health Score (large number + ring)
-/// - Healthy / Warnings / Critical counts with colored dots
-/// - Potential Cleanup (total reclaimable + "Review Cleanup Plan" button)
-/// - Recently Detected Issues (top 3 by severity, then by savings desc)
+/// Layout:
+///   12 tools   ·   2 warnings   ·   4.2 GB reclaimable
+///   ───────────────────────────────────────────────
+///   RECENT FINDINGS                                  [3]
+///   ───────────────────────────────────────────────
+///   Finding row 1
+///   Finding row 2
+///   Finding row 3
 ///
-/// Uses `OverviewViewModel` to coordinate with the diagnostics engine.
-/// On first appear and on `Refresh` toolbar action, calls
-/// `vm.analyze()` which runs `DiagnosticsEngine.analyze()` and refreshes
-/// the published `issues` array.
+///   RECOMMENDED ACTIONS
+///   ───────────────────────────────────────────────
+///   Action row 1
+///   Action row 2
+///
+///   STORAGE BY TOOL
+///   ───────────────────────────────────────────────
+///   Tool row 1
+///   Tool row 2
 public struct OverviewView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var router: AppRouter
-    @StateObject private var viewModel: OverviewViewModel
+    @EnvironmentObject private var viewModel: OverviewViewModel
+    @EnvironmentObject private var toolsViewModel: ToolsViewModel
+    @EnvironmentObject private var storageViewModel: StorageViewModel
+    @EnvironmentObject private var diagnosticsViewModel: DiagnosticsViewModel
 
-    public init(viewModel: OverviewViewModel? = nil) {
-        // The real ViewModel is created from `AppEnvironment` via `.onAppear`
-        // because @EnvironmentObject isn't available at init time. The
-        // optional parameter exists for previews and tests.
-        if let viewModel {
-            _viewModel = StateObject(wrappedValue: viewModel)
-        } else {
-            _viewModel = StateObject(wrappedValue: OverviewViewModel.preview())
-        }
-    }
+    public init() {}
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xl) {
-                SectionHeader(
-                    "Overview",
-                    subtitle: "Environment health at a glance"
-                )
-
-                healthScoreCard
-                countsCard
-                cleanupCard
-                recentIssuesCard
+                summaryHeader
+                findingsSection
+                actionsSection
+                storageSection
             }
-            .padding(Spacing.xl)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.top, Spacing.m)
+            .padding(.bottom, Spacing.xxl)
+            .frame(maxWidth: 900, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Palette.windowBackground)
+        .navigationTitle("Overview")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .navigation) {
+                ToolbarStatus(
+                    status: healthStatus,
+                    lastScanRelative: viewModel.lastAnalyzedAt.flatMap(Self.relativeString(from:))
+                )
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     Task { await viewModel.analyze() }
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .disabled(viewModel.isAnalyzing)
+                .keyboardShortcut("r", modifiers: .command)
+                .help("Refresh environment analysis")
             }
         }
         .task {
-            // Initial analyze on first appear.
-            if viewModel.issues.isEmpty {
+            if !viewModel.hasScanned {
                 await viewModel.analyze()
             }
         }
     }
 
-    // MARK: - Cards
+    // MARK: - Summary header
 
-    private var healthScoreCard: some View {
-        ForgeCard {
-            VStack(alignment: .leading, spacing: Spacing.s) {
-                Text("Health Score")
-                    .font(Typography.headline)
-                    .foregroundStyle(Palette.textSecondary)
-                HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
-                    Text("\(viewModel.healthScore)")
-                        .font(.system(size: 64, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(healthScoreColor)
-                    Text("%")
-                        .font(Typography.title)
-                        .foregroundStyle(Palette.textSecondary)
-                }
-                if let last = viewModel.lastAnalyzedAt {
-                    Text("Last analyzed \(last, style: .relative) ago")
-                        .font(Typography.caption)
-                        .foregroundStyle(Palette.textTertiary)
-                }
-            }
+    /// One-line status summary — tools, issues, reclaimable, all in
+    /// monospaced digits. Pure data, no marketing copy. Renders as a
+    /// single horizontal row with subtle dot separators between stats.
+    private var summaryHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            stat(
+                value: "\(toolsViewModel.totalCount)",
+                label: toolsViewModel.totalCount == 1 ? "tool" : "tools"
+            )
+            separator
+            stat(
+                value: "\(viewModel.criticalCount + viewModel.warningCount)",
+                label: viewModel.criticalCount + viewModel.warningCount == 1 ? "issue" : "issues",
+                color: (viewModel.criticalCount + viewModel.warningCount) > 0 ? Palette.warning : Palette.textPrimary
+            )
+            separator
+            stat(
+                value: ByteCountFormatter.string(
+                    fromByteCount: Int64(viewModel.potentialCleanupBytes),
+                    countStyle: .binary
+                ),
+                label: "reclaimable"
+            )
+            separator
+            stat(
+                value: viewModel.lastAnalyzedAt.flatMap { lastScanRelativeString(from: $0) } ?? "—",
+                label: "last scan",
+                color: Palette.textSecondary,
+                useMonospacedDigit: false
+            )
+            Spacer(minLength: 0)
         }
     }
 
-    private var countsCard: some View {
-        ForgeCard {
-            VStack(alignment: .leading, spacing: Spacing.s) {
-                Text("Tool Health")
-                    .font(Typography.headline)
-                    .foregroundStyle(Palette.textSecondary)
-                HStack(spacing: Spacing.xl) {
-                    countPill("Healthy", value: viewModel.healthyCount, color: Palette.success)
-                    countPill("Warnings", value: viewModel.warningCount, color: Palette.warning)
-                    countPill("Critical", value: viewModel.criticalCount, color: Palette.critical)
-                }
-            }
+    /// One inline stat block: monospaced number + small label.
+    private func stat(value: String, label: String, color: Color = Palette.textPrimary, useMonospacedDigit: Bool = true) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(value)
+                .font(useMonospacedDigit
+                      ? Typography.body.weight(.semibold).monospacedDigit()
+                      : Typography.body.weight(.semibold))
+                .foregroundStyle(color)
+            Text(label)
+                .font(Typography.body)
+                .foregroundStyle(Palette.tertiaryLabel)
         }
     }
 
-    private var cleanupCard: some View {
-        ForgeCard {
-            VStack(alignment: .leading, spacing: Spacing.s) {
-                Text("Potential Cleanup")
-                    .font(Typography.headline)
-                    .foregroundStyle(Palette.textSecondary)
-                Text(ByteCountFormatter.string(fromByteCount: Int64(viewModel.potentialCleanupBytes), countStyle: .binary))
-                    .font(Typography.title)
-                    .monospacedDigit()
-                    .foregroundStyle(Palette.textPrimary)
-                Text("\(viewModel.issues.filter { $0.estimatedSavingsBytes != nil }.count) items reclaimable")
-                    .font(Typography.caption)
-                    .foregroundStyle(Palette.textSecondary)
-                Button("Review Cleanup Plan") {
-                    router.selectSection(.cleanup)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(viewModel.issues.isEmpty)
+    /// Subtle separator between stats — a bullet character in the
+    /// tertiary label color. Quieter than a divider line.
+    private var separator: some View {
+        Text("·")
+            .font(Typography.body)
+            .foregroundStyle(Palette.tertiaryLabel)
+            .padding(.horizontal, Spacing.s)
+    }
+
+    // MARK: - Recent Findings
+
+    private var findingsSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.s) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionEyebrow("Recent Findings")
+                Spacer(minLength: 0)
+                Text("\(viewModel.recentIssues.count)")
+                    .font(Typography.caption2.monospacedDigit())
+                    .foregroundStyle(Palette.tertiaryLabel)
             }
+            heroList
         }
     }
 
-    private var recentIssuesCard: some View {
-        ForgeCard {
-            VStack(alignment: .leading, spacing: Spacing.s) {
-                Text("Recently Detected")
-                    .font(Typography.headline)
-                    .foregroundStyle(Palette.textSecondary)
-
-                if viewModel.recentIssues.isEmpty {
-                    Text(viewModel.isAnalyzing ? "Analyzing…" : "No issues detected.")
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.textSecondary)
-                } else {
-                    ForEach(viewModel.recentIssues) { issue in
-                        issueRow(issue)
+    @ViewBuilder
+    private var heroList: some View {
+        if !viewModel.hasScanned && viewModel.issues.isEmpty {
+            Text("Scanning…")
+                .font(Typography.body)
+                .foregroundStyle(Palette.tertiaryLabel)
+                .padding(.vertical, Spacing.s)
+        } else if viewModel.recentIssues.isEmpty {
+            HStack(spacing: Spacing.s) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Palette.success)
+                Text("No issues detected")
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.secondaryLabel)
+            }
+            .padding(.vertical, Spacing.s)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(viewModel.recentIssues.enumerated()), id: \.element.id) { idx, issue in
+                    findingRow(issue)
+                    if idx < viewModel.recentIssues.count - 1 {
+                        Divider().foregroundStyle(Palette.separator)
                     }
                 }
             }
         }
     }
 
-    // MARK: - Helpers
+    /// One finding row — icon + title + tool · savings on the right.
+    /// Tight, single-line, developer-density.
+    private func findingRow(_ issue: DiagnosticIssue) -> some View {
+        Button {
+            router.showDiagnosticsIssue(issue.id)
+        } label: {
+            HStack(alignment: .center, spacing: Spacing.s) {
+                Image(systemName: severityIcon(issue.severity))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(severityColor(issue.severity))
+                    .frame(width: 14)
 
-    private var healthScoreColor: Color {
-        let score = viewModel.healthScore
-        if score >= 80 { return Palette.success }
-        if score >= 50 { return Palette.warning }
-        return Palette.critical
-    }
-
-    private func countPill(_ label: String, value: Int, color: Color) -> some View {
-        HStack(spacing: Spacing.s) {
-            Circle()
-                .fill(color)
-                .frame(width: 10, height: 10)
-            Text("\(value)")
-                .font(Typography.title3)
-                .monospacedDigit()
-                .foregroundStyle(Palette.textPrimary)
-            Text(label)
-                .font(Typography.caption)
-                .foregroundStyle(Palette.textSecondary)
-        }
-    }
-
-    private func issueRow(_ issue: DiagnosticIssue) -> some View {
-        HStack(alignment: .top, spacing: Spacing.s) {
-            Image(systemName: severityIcon(issue.severity))
-                .foregroundStyle(severityColor(issue.severity))
-                .font(.body)
-                .frame(width: 18, alignment: .center)
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(issue.title)
-                    .font(Typography.body)
+                    .font(Typography.subheadline)
                     .foregroundStyle(Palette.textPrimary)
+                    .lineLimit(1)
+
+                Text("·")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Palette.tertiaryLabel)
+
+                Text(issue.toolID.rawValue.capitalized)
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Palette.tertiaryLabel)
+                    .lineLimit(1)
+
+                Spacer(minLength: Spacing.s)
+
                 if let savings = issue.estimatedSavingsBytes, savings > 0 {
                     Text(ByteCountFormatter.string(fromByteCount: Int64(savings), countStyle: .binary))
-                        .font(Typography.caption)
-                        .foregroundStyle(Palette.textSecondary)
-                        .monospacedDigit()
+                        .font(Typography.subheadline.monospacedDigit())
+                        .foregroundStyle(Palette.secondaryLabel)
                 }
             }
-            Spacer()
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, Spacing.xxs)
+        .buttonStyle(.plain)
     }
+
+    // MARK: - Recommended Actions
+
+    private var actionsSection: some View {
+        let actionable = actionableIssues
+        return Group {
+            if !actionable.isEmpty {
+                VStack(alignment: .leading, spacing: Spacing.s) {
+                    HStack(alignment: .firstTextBaseline) {
+                        SectionEyebrow("Recommended Actions")
+                        Spacer(minLength: 0)
+                        Text("\(actionable.count)")
+                            .font(Typography.caption2.monospacedDigit())
+                            .foregroundStyle(Palette.tertiaryLabel)
+                    }
+                    VStack(spacing: 0) {
+                        ForEach(Array(actionable.enumerated()), id: \.element.id) { idx, issue in
+                            actionRow(issue)
+                            if idx < actionable.count - 1 {
+                                Divider().foregroundStyle(Palette.separator)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Issues where a fix is available and the savings are worth
+    /// acting on. Sorted by savings descending.
+    private var actionableIssues: [DiagnosticIssue] {
+        viewModel.issues
+            .filter { $0.fixAvailable && ($0.estimatedSavingsBytes ?? 0) > 0 }
+            .sorted { ($0.estimatedSavingsBytes ?? 0) > ($1.estimatedSavingsBytes ?? 0) }
+            .prefix(3)
+            .map { $0 }
+    }
+
+    /// One recommended action row — terse, single-line. Tap to open
+    /// the issue in Diagnostics.
+    private func actionRow(_ issue: DiagnosticIssue) -> some View {
+        Button {
+            router.showDiagnosticsIssue(issue.id)
+        } label: {
+            HStack(alignment: .center, spacing: Spacing.s) {
+                Image(systemName: "arrow.up.right.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.accent)
+                    .frame(width: 14)
+
+                Text("Reclaim \(formattedSavings(issue.estimatedSavingsBytes ?? 0))")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Palette.textPrimary)
+
+                Text("·")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Palette.tertiaryLabel)
+
+                Text(issue.toolID.rawValue.capitalized)
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Palette.tertiaryLabel)
+                    .lineLimit(1)
+
+                Spacer(minLength: Spacing.s)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Palette.tertiaryLabel)
+            }
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func formattedSavings(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary)
+    }
+
+    // MARK: - Storage Summary
+
+    private var storageSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.s) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionEyebrow("Storage by Tool")
+                Spacer(minLength: 0)
+                Text(ByteCountFormatter.string(
+                    fromByteCount: Int64(viewModel.potentialCleanupBytes),
+                    countStyle: .binary
+                ))
+                    .font(Typography.caption2.monospacedDigit())
+                    .foregroundStyle(Palette.tertiaryLabel)
+            }
+
+            if storageViewModel.storageByTool.isEmpty {
+                Text(storageViewModel.isAnalyzing ? "Analyzing storage…" : "No reclaimable storage detected.")
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.tertiaryLabel)
+                    .padding(.vertical, Spacing.s)
+            } else {
+                storageTable
+            }
+        }
+    }
+
+    private var storageTable: some View {
+        let total = storageViewModel.storageByTool.reduce(UInt64(0)) { $0 + $1.bytes }
+        return VStack(spacing: 0) {
+            storageTableHeader
+            Divider().foregroundStyle(Palette.separator)
+            ForEach(Array(storageViewModel.storageByTool.prefix(6).enumerated()), id: \.element.id) { idx, bucket in
+                storageTableRow(bucket: bucket, total: total)
+                if idx < min(storageViewModel.storageByTool.count, 6) - 1 {
+                    Divider().foregroundStyle(Palette.separator)
+                }
+            }
+        }
+    }
+
+    private var storageTableHeader: some View {
+        HStack {
+            Text("Tool")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Reclaimable")
+                .frame(width: 100, alignment: .trailing)
+            Text("%")
+                .frame(width: 44, alignment: .trailing)
+        }
+        .font(Typography.caption2.weight(.medium))
+        .tracking(0.3)
+        .foregroundStyle(Palette.tertiaryLabel)
+        .padding(.vertical, Spacing.xs)
+    }
+
+    private func storageTableRow(bucket: StorageBucket, total: UInt64) -> some View {
+        HStack {
+            Text(bucket.label)
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(bucket.formattedBytes)
+                .font(Typography.subheadline.monospacedDigit())
+                .foregroundStyle(Palette.textPrimary)
+                .frame(width: 100, alignment: .trailing)
+            Text(percentString(bucket.bytes, total: total))
+                .font(Typography.subheadline.monospacedDigit())
+                .foregroundStyle(Palette.tertiaryLabel)
+                .frame(width: 44, alignment: .trailing)
+        }
+        .padding(.vertical, 3)
+    }
+
+    // MARK: - Helpers
 
     private func severityIcon(_ severity: DiagnosticSeverity) -> String {
         switch severity {
@@ -210,5 +386,28 @@ public struct OverviewView: View {
         case .warning:  return Palette.warning
         case .info:     return Palette.textSecondary
         }
+    }
+
+    private var healthStatus: ToolbarStatus.Status {
+        if viewModel.criticalCount > 0 { return .critical }
+        if viewModel.warningCount > 0 { return .warnings }
+        return .healthy
+    }
+
+    private func percentString(_ bytes: UInt64, total: UInt64) -> String {
+        guard total > 0 else { return "0%" }
+        let pct = Double(bytes) / Double(total) * 100
+        return String(format: "%.0f%%", pct)
+    }
+
+    private static func relativeString(from date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func lastScanRelativeString(from date: Date) -> String {
+        RelativeDateTimeFormatter()
+            .localizedString(for: date, relativeTo: Date())
     }
 }

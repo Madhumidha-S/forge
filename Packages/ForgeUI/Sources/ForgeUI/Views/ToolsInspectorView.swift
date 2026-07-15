@@ -1,17 +1,17 @@
 import SwiftUI
+import AppKit
 import ForgeCore
 import ForgeDesign
 
-/// Inspector panel for the Tools section — shows details for a selected
-/// tool and exposes actions (Analyze, Cleanup, Open Config, Reveal in Finder).
+/// Inspector panel for the Tools section.
 ///
-/// Renders nothing when `toolID` doesn't resolve to a known tool. The
-/// parent `RootView` is responsible for only showing this view when the
-/// current section is `.tools` AND a tool is selected.
+/// Header: tool name + version (typographic, no giant icon).
+/// Body: details section + actions section.
+/// No card chrome — sections are separated by hairlines.
 public struct ToolsInspectorView: View {
     @EnvironmentObject private var environment: AppEnvironment
-    @State private var isAnalyzing = false
-    @State private var issues: [DiagnosticIssue] = []
+    @EnvironmentObject private var activityStore: ActivityStore
+    @EnvironmentObject private var viewModel: ToolsViewModel
 
     private let toolID: ToolID
 
@@ -20,107 +20,102 @@ public struct ToolsInspectorView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.l) {
-            header
+        Group {
+            if let tool = currentTool {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        headerSection(for: tool)
 
-            ForgeCard {
-                VStack(alignment: .leading, spacing: Spacing.s) {
-                    KeyValueRow("ID", toolID.rawValue)
-                    KeyValueRow("Version", "—")
-                    KeyValueRow("Location", "—")
-                    KeyValueRow("Status", "Detecting…")
+                        InspectorSection("Details") {
+                            KeyValueRow("Version", tool.version ?? "—")
+                            KeyValueRow("Path", tool.installPath ?? "—")
+                            KeyValueRow("Disk Usage", tool.diskUsageFormatted)
+                            KeyValueRow(
+                                "Last Checked",
+                                tool.lastChecked.formatted(.relative(presentation: .named))
+                            )
+                            KeyValueRow(
+                                "Status",
+                                tool.isHealthy ? "Healthy" : "Unhealthy"
+                            )
+                            KeyValueRow(
+                                "Updates",
+                                tool.hasUpdateText
+                            )
+                        }
+
+                        InspectorSection("Actions") {
+                            VStack(spacing: Spacing.xs) {
+                                Button("Open in Finder") {
+                                    revealInFinder(tool: tool)
+                                }
+                                .controlSize(.regular)
+                                .disabled(tool.installPath == nil)
+                                .frame(maxWidth: .infinity)
+
+                                Button("Analyze Storage") {
+                                    analyze(tool: tool)
+                                }
+                                .controlSize(.regular)
+                                .frame(maxWidth: .infinity)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(Spacing.m)
                 }
-            }
-
-            ForgeCard {
-                VStack(alignment: .leading, spacing: Spacing.s) {
-                    Text("Storage").font(Typography.subheadline).foregroundStyle(Palette.textPrimary)
-                    Text("—")
-                        .font(Typography.title3)
-                        .monospacedDigit()
-                        .foregroundStyle(Palette.textSecondary)
-                    Text("Issues").font(Typography.subheadline).foregroundStyle(Palette.textPrimary)
-                    Text("0")
-                        .font(Typography.title3)
-                        .monospacedDigit()
-                        .foregroundStyle(Palette.textSecondary)
+            } else {
+                VStack(spacing: Spacing.s) {
+                    Image(systemName: "questionmark.circle")
+                        .font(.title2)
+                        .foregroundStyle(.tertiary)
+                    Text("Tool unavailable")
+                        .font(Typography.callout)
+                        .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-
-            actionsCard
-
-            Spacer()
         }
-        .padding(Spacing.l)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-            HStack(spacing: Spacing.s) {
-                Image(systemName: "wrench.and.screwdriver")
+    /// Looks up the current `ToolUIModel` for `toolID` from the shared
+    /// view model.
+    private var currentTool: ToolUIModel? {
+        viewModel.tools.first { $0.toolIdRaw == toolID.rawValue }
+    }
+
+    /// Typographic header — tool name and version, with a small inline
+    /// SF Symbol as a soft accent. No card chrome.
+    private func headerSection(for tool: ToolUIModel) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
+            Image(systemName: tool.systemImageName)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Palette.secondaryLabel)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tool.displayName)
                     .font(Typography.title3)
-                    .foregroundStyle(Palette.accent)
-                Text(toolID.rawValue.capitalized)
-                    .font(Typography.title2)
-                    .foregroundStyle(Palette.textPrimary)
-            }
-        }
-    }
-
-    private var actionsCard: some View {
-        ForgeCard {
-            VStack(spacing: Spacing.s) {
-                actionButton("Analyze", systemImage: "stethoscope") {
-                    Task { await analyze() }
-                }
-                .disabled(isAnalyzing)
-                actionButton("Cleanup", systemImage: "trash") {
-                    // Phase 4J wires this to the cleanup preview sheet.
-                }
-                actionButton("Open Config", systemImage: "doc.text") {
-                    // Reveals the tool's config in Finder.
-                }
-                actionButton("Reveal in Finder", systemImage: "folder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([])
+                if let version = tool.version {
+                    Text(version)
+                        .font(Typography.caption.monospacedDigit())
+                        .foregroundStyle(Palette.tertiaryLabel)
                 }
             }
+            Spacer(minLength: 0)
         }
+        .padding(.vertical, Spacing.s)
     }
 
-    private func actionButton(
-        _ label: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack {
-                Image(systemName: systemImage)
-                Text(label)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(Palette.textTertiary)
-                    .font(.caption)
-            }
-            .padding(.vertical, Spacing.xs)
-            .padding(.horizontal, Spacing.s)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private func revealInFinder(tool: ToolUIModel) {
+        guard let path = tool.installPath else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
-    /// Runs the diagnostics engine and stores the issues for this specific
-    /// tool. Filters by `toolID` so the inspector shows just the issues
-    /// relevant to the selected tool, not the full set.
-    private func analyze() async {
-        isAnalyzing = true
-        defer { isAnalyzing = false }
-        do {
-            let all = try await environment.diagnosticsEngine.analyze()
-            issues = all.filter { $0.toolID == toolID }
-        } catch {
-            issues = []
+    private func analyze(tool: ToolUIModel) {
+        guard let toolID = ToolID(rawValue: tool.toolIdRaw) else { return }
+        Task {
+            _ = try? await environment.diagnosticsEngine.analyze(toolID: toolID)
+            activityStore.info("Analyzed storage for \(tool.displayName)")
         }
     }
 }

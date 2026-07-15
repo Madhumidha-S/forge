@@ -2,61 +2,59 @@ import SwiftUI
 import ForgeCore
 import ForgeDesign
 
-/// Cleanup screen — table of cleanup opportunities with dry-run preview.
+/// Cleanup — focused action page.
 ///
-/// Phase 4 ships dry-run only. Each row shows a cleanup action with the
-/// diagnostic engine's estimate of reclaimable bytes, plus a [Preview]
-/// button that runs the action's `dryRun()` and shows exactly what would
-/// be touched (no destructive execution).
+/// Lists reclaimable opportunities as task rows the user can act on.
+/// No hero, no dashboard tiles — just a quiet header summarizing the
+/// total reclaimable space and a list of recommendations.
 ///
-/// The screen coordinates with `CleanupViewModel`. On appear and on the
-/// toolbar Refresh action, `refresh()` reads the cleanup registry and
-/// re-runs the diagnostics engine.
+/// Layout:
+///   41.7 GB reclaimable
+///   ───────────────────────────────────────────
+///   ●  DerivedData                            18.4 GB
+///      Xcode
+///   ───────────────────────────────────────────
+///   ●  Docker images                          12.0 GB
+///      Docker
 public struct CleanupView: View {
-    @EnvironmentObject private var environment: AppEnvironment
-    @StateObject private var viewModel: CleanupViewModel
-    @State private var showingPreview: CleanupPreview?
+    @EnvironmentObject private var viewModel: CleanupViewModel
+    @EnvironmentObject private var router: AppRouter
 
-    public init(viewModel: CleanupViewModel? = nil) {
-        if let viewModel {
-            _viewModel = StateObject(wrappedValue: viewModel)
-        } else {
-            _viewModel = StateObject(wrappedValue: CleanupViewModel.preview())
-        }
-    }
+    public init() {}
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xl) {
-                SectionHeader(
-                    "Cleanup",
-                    subtitle: subtitleText
-                )
-
-                if viewModel.isLoading && viewModel.opportunities.isEmpty {
-                    analyzingPlaceholder
-                } else if viewModel.opportunities.isEmpty {
-                    emptyPlaceholder
-                } else {
-                    opportunitiesTable
-                }
-
-                if hasPreviews {
-                    previewAllButton
-                }
+        Group {
+            if hasScannedAndFoundNothing {
+                cleanupEmptyState
+            } else if isLoadingWithNothingToShow {
+                loadingPlaceholder
+            } else if viewModel.opportunities.isEmpty {
+                cleanupEmptyState
+            } else {
+                opportunitiesList
             }
-            .padding(Spacing.xl)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Cleanup")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .navigation) {
+                ToolbarStatus(
+                    status: viewModel.isLoading ? .idle
+                         : viewModel.opportunities.contains(where: { $0.estimatedSavingsBytes > 10_000_000_000 }) ? .critical
+                         : !viewModel.opportunities.isEmpty ? .warnings
+                         : .healthy,
+                    lastScanRelative: nil
+                )
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     Task { await viewModel.refresh() }
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .disabled(viewModel.isLoading)
+                .keyboardShortcut("r", modifiers: .command)
+                .help("Scan for cleanup opportunities")
             }
         }
         .task {
@@ -64,137 +62,158 @@ public struct CleanupView: View {
                 await viewModel.refresh()
             }
         }
-        .sheet(item: $showingPreview) { preview in
-            CleanupPreviewSheet(preview: preview)
+    }
+
+    // MARK: - Derived state
+
+    private var hasScannedAndFoundNothing: Bool {
+        !viewModel.isLoading
+            && viewModel.opportunities.isEmpty
+            && viewModel.lastError == nil
+    }
+
+    private var isLoadingWithNothingToShow: Bool {
+        viewModel.isLoading && viewModel.opportunities.isEmpty
+    }
+
+    private var totalReclaimable: UInt64 {
+        viewModel.opportunities.reduce(UInt64(0)) { $0 + $1.estimatedSavingsBytes }
+    }
+
+    // MARK: - List
+
+    /// Focused action layout: a small total header, then the
+    /// opportunity list. No card chrome, no section headers.
+    private var opportunitiesList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Spacing.s) {
+                header
+                list
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.top, Spacing.s)
+            .padding(.bottom, Spacing.xxl)
+            .frame(maxWidth: 880, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 
-    // MARK: - Subtitle
-
-    private var subtitleText: String {
-        let totalReclaimable = viewModel.opportunities.reduce(UInt64(0)) { $0 + $1.estimatedSavingsBytes }
-        let count = viewModel.opportunities.count
-        let totalFormatted = ByteCountFormatter.string(fromByteCount: Int64(totalReclaimable), countStyle: .binary)
-        return "\(count) cleanup opportunities, \(totalFormatted) potential reclaim"
+    /// Quiet header — total reclaimable in larger type, secondary line
+    /// counts how many opportunities exist.
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+            Text(ByteCountFormatter.string(
+                fromByteCount: Int64(totalReclaimable),
+                countStyle: .binary
+            ))
+                .font(Typography.monospacedDigitLarge)
+                .foregroundStyle(Palette.textPrimary)
+            Text("reclaimable")
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.secondaryLabel)
+            Spacer(minLength: 0)
+            Text("\(viewModel.opportunities.count) opportunit\(viewModel.opportunities.count == 1 ? "y" : "ies")")
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.tertiaryLabel)
+        }
     }
 
-    private var hasPreviews: Bool {
-        viewModel.opportunities.contains { $0.action != nil }
-    }
-
-    // MARK: - Table
-
-    private var opportunitiesTable: some View {
-        ForgeCard(padding: 0) {
-            VStack(spacing: 0) {
-                tableHeader
-                ForEach(Array(viewModel.opportunities.enumerated()), id: \.element.id) { index, opp in
-                    if index > 0 {
-                        Divider()
-                    }
-                    opportunityRow(opp)
+    private var list: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(viewModel.opportunities.enumerated()), id: \.element.id) { idx, opp in
+                OpportunityRow(opportunity: opp)
+                    .tag(opp.id as String?)
+                if idx < viewModel.opportunities.count - 1 {
+                    Divider().foregroundStyle(Palette.separator)
                 }
             }
         }
     }
 
-    private var tableHeader: some View {
-        HStack {
-            Text("Tool")
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text("Current Size")
-                .frame(width: 120, alignment: .trailing)
-            Text("Reclaimable")
-                .frame(width: 120, alignment: .trailing)
-            Text("Action")
-                .frame(width: 120, alignment: .trailing)
-        }
-        .font(Typography.caption)
-        .foregroundStyle(Palette.textSecondary)
-        .padding(.horizontal, Spacing.l)
-        .padding(.vertical, Spacing.s)
-        .background(Palette.surface.opacity(0.5))
-    }
+    // MARK: - Empty state
 
-    private func opportunityRow(_ opp: CleanupOpportunity) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                Text(opp.displayName)
-                    .font(Typography.body)
+    /// Premium empty state — light sparkles icon, premium typography,
+    /// Apple proportions. Avoids the generic "Nothing to show" feel.
+    private var cleanupEmptyState: some View {
+        VStack(spacing: Spacing.l) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 56, weight: .ultraLight))
+                .foregroundStyle(Palette.secondaryLabel)
+            VStack(spacing: Spacing.xs) {
+                Text("All clean")
+                    .font(Typography.title)
                     .foregroundStyle(Palette.textPrimary)
-                Text(opp.toolID.rawValue.capitalized)
-                    .font(Typography.caption)
-                    .foregroundStyle(Palette.textTertiary)
+                Text("No reclaimable storage detected. Run a scan if you think this is wrong.")
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.secondaryLabel)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text("—")
-                .font(Typography.body.monospacedDigit())
-                .foregroundStyle(Palette.textSecondary)
-                .frame(width: 120, alignment: .trailing)
-
-            Text(opp.reclaimableFormatted)
-                .font(Typography.body.monospacedDigit())
-                .foregroundStyle(opp.estimatedSavingsBytes > 0 ? Palette.warning : Palette.textSecondary)
-                .frame(width: 120, alignment: .trailing)
-
-            Button("Preview") {
-                Task {
-                    await viewModel.preview(opp)
-                    showingPreview = viewModel.preview
-                }
+            Button("Re-scan") {
+                Task { await viewModel.refresh() }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(opp.action == nil)
-            .frame(width: 120, alignment: .trailing)
-        }
-        .padding(.horizontal, Spacing.l)
-        .padding(.vertical, Spacing.m)
-    }
-
-    // MARK: - Preview All
-
-    private var previewAllButton: some View {
-        HStack {
-            Spacer()
-            Button {
-                Task {
-                    await viewModel.previewAll()
-                    showingPreview = viewModel.preview
-                }
-            } label: {
-                Label("Preview All", systemImage: "eye.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .controlSize(.regular)
             .disabled(viewModel.isLoading)
         }
+        .padding(Spacing.xl)
+        .frame(maxWidth: 380)
+        .frame(maxWidth: .infinity, minHeight: 360)
     }
 
-    // MARK: - Placeholders
-
-    private var analyzingPlaceholder: some View {
-        ForgeCard {
-            VStack(alignment: .leading, spacing: Spacing.s) {
-                Text("Loading cleanup opportunities…")
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.textSecondary)
-                ProgressView()
-            }
+    private var loadingPlaceholder: some View {
+        VStack(spacing: Spacing.m) {
+            ProgressView()
+            Text("Scanning for cleanup opportunities…")
+                .font(Typography.body)
+                .foregroundStyle(Palette.textSecondary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var emptyPlaceholder: some View {
-        ForgeCard {
-            VStack(alignment: .leading, spacing: Spacing.s) {
-                Text("No cleanup actions available.")
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.textPrimary)
-                Text("Install cleanup actions or check that Forge can see your dev tools.")
-                    .font(Typography.caption)
-                    .foregroundStyle(Palette.textSecondary)
-            }
+    // MARK: - Selection
+
+    private var selectedOpportunityIDBinding: Binding<String?> {
+        Binding(
+            get: { router.selectedOpportunityID },
+            set: { router.selectOpportunity($0) }
+        )
+    }
+}
+
+// MARK: - Opportunity row
+
+/// One action row. Layout: small accent dot · title · tool as
+/// secondary text · reclaimable bytes on the right. Tight vertical
+/// padding. Selection is implied by the row's tap target — no chevron
+/// (Reminders / Things pattern).
+private struct OpportunityRow: View {
+    let opportunity: CleanupOpportunity
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Spacing.s) {
+            StatusDot(Palette.accent, size: 7)
+
+            Text(opportunity.displayName)
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.textPrimary)
+                .lineLimit(1)
+
+            Text("·")
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.tertiaryLabel)
+
+            Text(opportunity.toolID.rawValue.capitalized)
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.tertiaryLabel)
+                .lineLimit(1)
+
+            Spacer(minLength: Spacing.s)
+
+            Text(opportunity.reclaimableFormatted)
+                .font(Typography.subheadline.monospacedDigit())
+                .foregroundStyle(Palette.secondaryLabel)
         }
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
     }
 }

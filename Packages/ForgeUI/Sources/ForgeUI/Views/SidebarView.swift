@@ -5,11 +5,12 @@ import ForgeDesign
 /// Sidebar for the Forge `NavigationSplitView`.
 ///
 /// Renders one row per `AppSection` with the section's SF Symbol and label.
-/// Keyboard shortcuts ⌘1-⌘6 are attached to each row via
+/// Keyboard shortcuts ⌘1–⌘6 are attached to each row via
 /// `.keyboardShortcut(...)` so they work regardless of focus.
 ///
-/// The selection binding is owned by `AppRouter`; this view just reads and
-/// writes it.
+/// The footer is intentionally minimal — three lines: app name, version,
+/// platform. Health and last-scan live on the Overview page, not in the
+/// sidebar.
 public struct SidebarView: View {
     @Binding var selection: AppSection
 
@@ -18,12 +19,18 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        List(AppSection.allCases, selection: $selection) { section in
-            row(for: section)
-                .tag(section)
+        VStack(spacing: 0) {
+            List(AppSection.allCases, selection: $selection) { section in
+                row(for: section)
+                    .tag(section)
+            }
+            .listStyle(.sidebar)
+            .navigationTitle("Forge")
+
+            Divider()
+
+            SidebarFooter()
         }
-        .listStyle(.sidebar)
-        .navigationTitle("Forge")
     }
 
     /// One row per section. Sections with a `keyboardShortcut` (⌘1–⌘6) get

@@ -1,95 +1,213 @@
 import SwiftUI
-import SwiftData
+import AppKit
 import ForgeCore
 import ForgeDesign
 
-/// Tools screen — native `Table` with 6 columns and an inspector panel.
+/// Tools — Activity Monitor style.
 ///
-/// Columns match the architecture doc's wireframe:
-/// - Tool
-/// - Version
-/// - Status
-/// - Disk Usage
-/// - Updates
-/// - Last Checked
+/// A dense native table listing every detected developer tool. Layout
+/// follows Activity Monitor's idiom: small text, monospaced numeric
+/// columns right-aligned, status shown as a tiny inline dot, and a
+/// minimal toolbar.
 ///
-/// Row selection writes to `AppRouter.selectedToolID`, which the parent
-/// `RootView` reads to populate the inspector panel.
+/// Toolbar:
+///   ● Healthy · 2m ago        [All ▾]    Sort ▾     ⟳
 ///
-/// Sortable columns status
-/// -----------------------
-/// The `@State sortOrder` and `.onChange(of:)` handler are present so the
-/// sort state infrastructure is in place. Phase 4F.1 deliberately omits
-/// `Table(sortOrder:)` and the per-column `value:` parameters — the macOS
-/// 14 `Table` type-checker hits its time budget on the 6-column generic
-/// expression when both are present (every attempt to extract cells /
-/// decompose the body hit the same wall). Clickable column-header
-/// sorting is deferred to a follow-up that either uses `@TableColumnBuilder`
-/// differently or implements a custom sort UI in the toolbar.
+/// Selection drives the inspector column.
 public struct ToolsView: View {
     @EnvironmentObject private var router: AppRouter
-    @ObservedObject private var viewModel: ToolsViewModel
+    @EnvironmentObject private var viewModel: ToolsViewModel
+    @EnvironmentObject private var activityStore: ActivityStore
+    @EnvironmentObject private var environment: AppEnvironment
 
     @State private var sortField: ToolsSortField = .name
     @State private var sortDirection: SortDirection = .ascending
+    @State private var searchQuery: String = ""
+    @State private var statusFilter: StatusFilter = .all
 
-    public init(viewModel: ToolsViewModel? = nil) {
-        self.viewModel = viewModel ?? ToolsViewModel(
-            registry: PreviewStubRegistry(),
-            persistence: PreviewStubPersistence()
-        )
-    }
+    public init() {}
 
     public var body: some View {
-        Table(viewModel.tools, selection: selectedToolIDBinding) {
-            TableColumn("Tool") { tool in
-                ToolNameCell(tool: tool)
+        ZStack {
+            if viewModel.tools.isEmpty && !viewModel.isLoading {
+                EmptyState(
+                    systemImage: "wrench.and.screwdriver",
+                    title: "No tools detected",
+                    description: "Click Refresh to scan your system for installed developer tools."
+                ) {
+                    Button("Scan Now") {
+                        Task { await viewModel.refresh() }
+                    }
+                    .controlSize(.regular)
+                }
+            } else {
+                tableContent
             }
-            .width(min: 140, ideal: 180)
-
-            TableColumn("Version") { tool in
-                VersionCell(tool: tool)
-            }
-            .width(min: 80, ideal: 100)
-
-            TableColumn("Status") { tool in
-                StatusCell(tool: tool)
-            }
-            .width(min: 80, ideal: 100)
-
-            TableColumn("Disk Usage") { tool in
-                DiskUsageCell(tool: tool)
-            }
-            .width(min: 80, ideal: 110)
-
-            TableColumn("Updates") { tool in
-                UpdatesCell(tool: tool)
-            }
-            .width(min: 80, ideal: 100)
-
-            TableColumn("Last Checked") { tool in
-                LastCheckedCell(tool: tool)
-            }
-            .width(min: 100, ideal: 140)
         }
         .navigationTitle("Tools")
-        .searchable(text: .constant(""))
+        .searchable(text: $searchQuery, placement: .toolbar, prompt: "Search tools")
         .toolbar {
-            // Custom sort UI in the toolbar. The macOS 14 `Table` type-checker
-            // can't handle 6 columns × `value:` keypaths × `sortOrder:`
-            // binding, so clickable column-header sorting is off the table.
-            // A toolbar dropdown sidesteps the generic entirely while still
-            // giving the user full sort UX (field + direction).
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .navigation) {
+                ToolbarStatus(
+                    status: viewModel.healthyCount == viewModel.totalCount && viewModel.totalCount > 0 ? .healthy
+                           : viewModel.totalCount == 0 ? .idle
+                           : .warnings,
+                    lastScanRelative: viewModel.lastScanDate.flatMap(Self.relativeString(from:))
+                )
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                statusFilterMenu
+
                 sortMenu
+
+                Divider().frame(height: 16)
+
+                Button {
+                    Task { await viewModel.refresh() }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(viewModel.isLoading)
+                .help("Refresh tools")
+            }
+        }
+        .contextMenu(forSelectionType: ToolUIModel.ID.self) { ids in
+            if let id = ids.first, let tool = viewModel.tools.first(where: { $0.id == id }) {
+                Button("Open in Finder") {
+                    if let path = tool.installPath {
+                        NSWorkspace.shared.activateFileViewerSelecting(
+                            [URL(fileURLWithPath: path)]
+                        )
+                    }
+                }
+                .disabled(tool.installPath == nil)
+
+                Button("Copy Path") {
+                    if let path = tool.installPath {
+                        let pb = NSPasteboard.general
+                        pb.clearContents()
+                        pb.setString(path, forType: .string)
+                    }
+                }
+                .disabled(tool.installPath == nil)
+
+                Divider()
+
+                Button("Analyze Storage") {
+                    Task {
+                        if let toolID = ToolID(rawValue: tool.toolIdRaw) {
+                            _ = try? await environment.diagnosticsEngine.analyze(toolID: toolID)
+                            activityStore.info("Analyzed storage for \(tool.displayName)")
+                        }
+                    }
+                }
             }
         }
         .onChange(of: sortField) { _, _ in applySort() }
         .onChange(of: sortDirection) { _, _ in applySort() }
     }
 
-    /// Sort dropdown — two inline pickers (field + direction) plus a
-    /// label showing the current sort.
+    /// Native Table — five columns. Numeric columns (Version, Disk
+    /// Usage) are right-aligned and monospaced. Cell font is small and
+    /// regular-weight for Activity Monitor density.
+    private var tableContent: some View {
+        Table(filteredTools, selection: selectedToolIDBinding) {
+            TableColumn("Tool") { tool in
+                ToolNameCell(tool: tool)
+            }
+            .width(min: 180, ideal: 240)
+
+            TableColumn("Version") { tool in
+                VersionCell(tool: tool)
+            }
+            .width(min: 90, ideal: 110)
+
+            TableColumn("Status") { tool in
+                StatusCell(tool: tool)
+            }
+            .width(min: 90, ideal: 110)
+
+            TableColumn("Disk Usage") { tool in
+                DiskUsageCell(tool: tool)
+            }
+            .width(min: 90, ideal: 110)
+
+            TableColumn("Last Checked") { tool in
+                LastCheckedCell(tool: tool)
+            }
+            .width(min: 100, ideal: 130)
+        }
+        .tableStyle(.inset)
+        .controlSize(.small)
+    }
+
+    private var filteredTools: [ToolUIModel] {
+        var tools = viewModel.tools
+        if !searchQuery.isEmpty {
+            let q = searchQuery.lowercased()
+            tools = tools.filter {
+                $0.displayName.lowercased().contains(q) ||
+                ($0.version ?? "").lowercased().contains(q)
+            }
+        }
+        switch statusFilter {
+        case .all:
+            break
+        case .healthy:
+            tools = tools.filter { $0.isHealthy }
+        case .unhealthy:
+            tools = tools.filter { !$0.isHealthy }
+        }
+        return tools
+    }
+
+    /// Status filter menu — single Menu button labeled with the current
+    /// filter, replacing the segmented picker for a more native,
+    /// compact toolbar. Activity Monitor uses popup menus rather than
+    /// segmented controls.
+    private var statusFilterMenu: some View {
+        Menu {
+            Button {
+                statusFilter = .all
+            } label: {
+                if statusFilter == .all {
+                    Label("All", systemImage: "checkmark")
+                } else {
+                    Text("All")
+                }
+            }
+            Button {
+                statusFilter = .healthy
+            } label: {
+                if statusFilter == .healthy {
+                    Label("Healthy", systemImage: "checkmark")
+                } else {
+                    Text("Healthy")
+                }
+            }
+            Button {
+                statusFilter = .unhealthy
+            } label: {
+                if statusFilter == .unhealthy {
+                    Label("Unhealthy", systemImage: "checkmark")
+                } else {
+                    Text("Unhealthy")
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(statusFilter.label)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .font(Typography.subheadline)
+            .foregroundStyle(Palette.textPrimary)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    /// Sort dropdown — picker for the field, picker for direction.
     private var sortMenu: some View {
         Menu {
             Picker("Sort by", selection: $sortField) {
@@ -102,16 +220,18 @@ public struct ToolsView: View {
                 Text("Descending").tag(SortDirection.descending)
             }
         } label: {
-            Label("Sort", systemImage: "arrow.up.arrow.down")
+            HStack(spacing: 4) {
+                Text("Sort")
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .font(Typography.subheadline)
+            .foregroundStyle(Palette.textPrimary)
         }
         .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
-    /// Re-sorts the tool list using the current `sortField` +
-    /// `sortDirection`. `KeyPathComparator` handles optional types (nil
-    /// sorts to one end depending on direction). Delegates to
-    /// `viewModel.sort(by:)` because `tools` is `private(set)` and can't
-    /// be mutated in place from outside the view model.
     private func applySort() {
         let order: SortOrder = sortDirection == .ascending ? .forward : .reverse
         let comparator: KeyPathComparator<ToolUIModel>
@@ -128,9 +248,6 @@ public struct ToolsView: View {
         viewModel.sort(by: comparator)
     }
 
-    /// Bridges the table's optional selection into the router. The table
-    /// selection type is `ToolUIModel.ID?` (UUID?); the router stores the
-    /// raw tool ID string.
     private var selectedToolIDBinding: Binding<ToolUIModel.ID?> {
         Binding(
             get: { router.selectedToolID.flatMap { id in
@@ -147,80 +264,77 @@ public struct ToolsView: View {
     }
 }
 
-// MARK: - Column cell views
+// MARK: - Column cell views (Activity Monitor density)
 
-/// Tool icon + name. Renders inside the "Tool" column.
+/// Small, monospaced cell fonts for Activity Monitor density. Cell
+/// font is `subheadline` (12pt regular) — tighter than `body` and
+/// what Apple's Activity Monitor uses.
 private struct ToolNameCell: View {
     let tool: ToolUIModel
 
     var body: some View {
         HStack(spacing: Spacing.s) {
             Image(systemName: tool.systemImageName)
-                .foregroundStyle(Palette.accent)
+                .font(.system(size: 12))
+                .foregroundStyle(Palette.secondaryLabel)
+                .frame(width: 16)
             Text(tool.displayName)
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.textPrimary)
+                .lineLimit(1)
         }
     }
 }
 
-/// Version string, "—" when unknown. Monospaced digit font for alignment.
 private struct VersionCell: View {
     let tool: ToolUIModel
 
     var body: some View {
         Text(tool.version ?? "—")
+            .font(Typography.subheadline.monospacedDigit())
             .foregroundStyle(tool.version == nil ? Palette.textSecondary : Palette.textPrimary)
-            .monospacedDigit()
     }
 }
 
-/// "Healthy" / "Unhealthy" pill in the Status column.
+/// Status — tiny inline dot + label. No capsule, no background, no
+/// badge. Same vocabulary as Activity Monitor's process state column.
 private struct StatusCell: View {
     let tool: ToolUIModel
 
     var body: some View {
-        StatusBadge(
-            tool.isHealthy ? "Healthy" : "Unhealthy",
-            color: tool.isHealthy ? Palette.success : Palette.critical
-        )
+        HStack(spacing: 5) {
+            Circle()
+                .fill(tool.isHealthy ? Palette.success : Palette.critical)
+                .frame(width: 6, height: 6)
+            Text(tool.isHealthy ? "Healthy" : "Unhealthy")
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.secondaryLabel)
+        }
     }
 }
 
-/// Human-readable disk-usage string, "—" when unknown.
 private struct DiskUsageCell: View {
     let tool: ToolUIModel
 
     var body: some View {
         Text(tool.diskUsageFormatted)
-            .monospacedDigit()
-            .foregroundStyle(Palette.textPrimary)
+            .font(Typography.subheadline.monospacedDigit())
+            .foregroundStyle(tool.diskUsageBytes == nil ? Palette.textSecondary : Palette.textPrimary)
     }
 }
 
-/// "Available" / "Up to date" text in the Updates column.
-private struct UpdatesCell: View {
-    let tool: ToolUIModel
-
-    var body: some View {
-        Text(tool.hasUpdate ? "Available" : "Up to date")
-            .foregroundStyle(tool.hasUpdate ? Palette.warning : Palette.textSecondary)
-    }
-}
-
-/// Relative timestamp in the Last Checked column.
 private struct LastCheckedCell: View {
     let tool: ToolUIModel
 
     var body: some View {
         Text(tool.lastChecked, style: .relative)
+            .font(Typography.subheadline)
             .foregroundStyle(Palette.textSecondary)
     }
 }
 
-// MARK: - Sort types
+// MARK: - Sort / filter types
 
-/// Fields the user can sort the Tools table by. Each case maps to a
-/// `KeyPath` on `ToolUIModel`; the sort comparator is built in
-/// `applySort()`.
 enum ToolsSortField: String, CaseIterable, Identifiable, Hashable {
     case name
     case version
@@ -248,47 +362,31 @@ enum ToolsSortField: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-/// Sort direction for the Tools table.
 enum SortDirection: Hashable {
     case ascending
     case descending
 }
 
-// MARK: - Stub bridges
+enum StatusFilter: Hashable {
+    case all
+    case healthy
+    case unhealthy
 
-/// Bridges `ToolID` from the core module to the UI module's selection.
-private extension ToolID {
-    var rawValue: String { ToolIDStorage.rawValue(of: self) }
-}
-
-/// Indirection to access `ToolID.rawValue` without `internal` import friction.
-private enum ToolIDStorage {
-    static func rawValue(of toolID: ToolID) -> String {
-        // ToolID is a public enum in ForgeCore with rawValue String, so we
-        // can synthesize this through Mirror to avoid coupling.
-        let mirror = Mirror(reflecting: toolID)
-        for child in mirror.children {
-            if let value = child.value as? String { return value }
+    var label: String {
+        switch self {
+        case .all:       return "All"
+        case .healthy:   return "Healthy"
+        case .unhealthy: return "Unhealthy"
         }
-        return ""
     }
 }
 
-private final class PreviewStubRegistry: ForgeCore.DetectorRegistryProtocol {
-    func scanAll() async throws -> [ForgeCore.ToolDetection] { [] }
-    func register(_ detector: any ForgeCore.ToolDetectorProtocol) async {}
-}
+// MARK: - Helpers
 
-@MainActor
-private final class PreviewStubPersistence: ForgeCore.PersistenceControllerProtocol {
-    let container: ModelContainer
-
-    init() {
-        let schema = Schema([ToolRecord.self])
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        self.container = try! ModelContainer(for: schema, configurations: [config])
+extension ToolsView {
+    static func relativeString(from date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
-
-    func save(_ records: [ToolRecord]) throws {}
-    func fetchAll() throws -> [ToolRecord] { [] }
 }

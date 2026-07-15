@@ -2,35 +2,45 @@ import SwiftUI
 import ForgeCore
 import ForgeDesign
 
-/// Top-level view: NavigationSplitView with sidebar (sections),
-/// detail (section content), and inspector (tool details when on Tools).
+/// Top-level view: a single 3-column `NavigationSplitView` shell that
+/// stays stable across every section in the app.
 ///
-/// The view owns an `AppRouter` for navigation state. The router is
-/// injected into child views via `@EnvironmentObject`.
+/// - Sidebar (column 1): `SidebarView` selects the active `AppSection`.
+/// - Content (column 2): the active section's main view.
+/// - Inspector (column 3): contextual third column that shows the
+///   selected item's details, or a calm empty-state placeholder when
+///   nothing is selected. The column stays at a fixed comfortable width
+///   (~300pt) regardless of selection state so the layout never
+///   reflows.
 public struct RootView: View {
     @StateObject private var router = AppRouter()
 
     public init() {}
 
     public var body: some View {
-        NavigationSplitView(
-            sidebar: {
-                SidebarView(selection: $router.section)
-                    .navigationSplitViewColumnWidth(min: 200, ideal: 220)
-            },
-            content: {
-                detailView
-                    .navigationSplitViewColumnWidth(min: 480, ideal: 640)
-            },
-            detail: {
-                inspectorView
-                    .navigationSplitViewColumnWidth(min: 240, ideal: 280)
-            }
-        )
+        VStack(spacing: 0) {
+            NavigationSplitView(
+                sidebar: {
+                    SidebarView(selection: $router.section)
+                        .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+                },
+                content: {
+                    detailView
+                        .navigationSplitViewColumnWidth(min: 520, ideal: 760)
+                },
+                detail: {
+                    inspectorView
+                        .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 380)
+                }
+            )
+            StatusBar()
+        }
         .environmentObject(router)
-        .frame(minWidth: 800, minHeight: 500)
+        .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: 1000, minHeight: 600)
     }
 
+    /// Middle column: the active section's main view.
     @ViewBuilder
     private var detailView: some View {
         switch router.section {
@@ -44,15 +54,37 @@ public struct RootView: View {
         }
     }
 
+    /// Right column: dispatches to the appropriate inspector view, or
+    /// the shared empty-state placeholder when nothing is selected.
     @ViewBuilder
     private var inspectorView: some View {
-        // Inspector is only meaningful for the Tools section. For all other
-        // sections we render an empty placeholder so the column collapses
-        // to a thin strip rather than holding irrelevant content.
-        if router.section == .tools, let toolID = router.selectedToolID {
-            ToolsInspectorView(toolID: toolID)
-        } else {
-            Color.clear
+        switch router.section {
+        case .tools:
+            if let toolID = router.selectedToolID {
+                ToolsInspectorView(toolID: toolID)
+            } else {
+                InspectorEmptyHint()
+            }
+        case .diagnostics:
+            if let id = router.selectedIssueID {
+                DiagnosticsInspectorView(issueID: id)
+            } else {
+                InspectorEmptyHint()
+            }
+        case .cleanup:
+            if let id = router.selectedOpportunityID {
+                CleanupInspectorView(opportunityID: id)
+            } else {
+                InspectorEmptyHint()
+            }
+        case .activity:
+            if let id = router.selectedActivityEntryID {
+                ActivityInspectorView(entryID: id)
+            } else {
+                InspectorEmptyHint()
+            }
+        case .overview, .storage, .settings:
+            InspectorEmptyHint()
         }
     }
 }
