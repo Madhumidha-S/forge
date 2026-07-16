@@ -139,8 +139,21 @@ public struct XcodeDiagnostics: ToolDiagnostics, @unchecked Sendable {
     /// Recursive directory size in bytes. Skips files we can't stat
     /// (permission denied, broken symlinks) rather than failing the
     /// whole scan — we'd rather underreport than crash.
+    /// Recursive directory size in bytes.
+    ///
+    /// Deduplicates by fileResourceIdentifier (volume + inode) so files
+    /// reachable via multiple paths — including symlinks followed by
+    /// `FileManager.enumerator`, which happens by default — are only
+    /// counted once. Without this dedup, directories with symlinked
+    /// subtrees (common in Xcode DerivedData, Homebrew cache, pub-cache,
+    /// Gradle caches) get massively over-counted.
     private func directorySize(at url: URL) -> UInt64 {
-        let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]
+        let resourceKeys: [URLResourceKey] = [
+            .isRegularFileKey,
+            .fileSizeKey,
+            .isSymbolicLinkKey,
+            .fileResourceIdentifierKey
+        ]
         guard let enumerator = fileManager.enumerator(
             at: url,
             includingPropertiesForKeys: resourceKeys,
@@ -151,13 +164,20 @@ public struct XcodeDiagnostics: ToolDiagnostics, @unchecked Sendable {
         }
 
         var total: UInt64 = 0
+        var visited: Set<String> = []
         for case let fileURL as URL in enumerator {
             guard let values = try? fileURL.resourceValues(forKeys: Set(resourceKeys)),
                   let isFile = values.isRegularFile,
                   isFile,
                   values.isSymbolicLink != true,
-                  let size = values.fileSize
+                  let size = values.fileSize,
+                  let identifier = values.fileResourceIdentifier
             else { continue }
+            // Skip duplicates reached via multiple paths (e.g. symlink resolution).
+            // String(description:) yields a stable per-inode key (volume id + resource id).
+            let key = String(describing: identifier)
+            if visited.contains(key) { continue }
+            visited.insert(key)
             total += UInt64(size)
         }
         return total
