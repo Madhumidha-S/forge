@@ -97,11 +97,18 @@ public final class ToolUIModel: NSObject, Identifiable, @unchecked Sendable {
         isHealthy ? "Healthy" : "Unhealthy"
     }
 
-    /// Sortable key for the Updates column. Phase 4K will wire this to a
-    /// real UpdateProvider lookup; for now it's always false.
-    public var hasUpdate: Bool { false }
+    /// Tri-state update status:
+    ///   - nil:   update provider has not been consulted yet
+    ///   - true:  an update is available
+    ///   - false: the tool is confirmed up to date
+    /// Views should show "—" when nil, never "Up to date" without verification.
+    public var hasUpdate: Bool? { nil }
     public var hasUpdateText: String {
-        hasUpdate ? "Available" : "Up to date"
+        switch hasUpdate {
+        case .none: return "—"
+        case .some(true): return "Available"
+        case .some(false): return "Up to date"
+        }
     }
 
     /// Human-readable disk-usage string (e.g. "32.4 GB"). Returns "—"

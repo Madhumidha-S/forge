@@ -3,8 +3,10 @@ import SwiftUI
 /// Centered "nothing to show" placeholder with an SF Symbol, title,
 /// description, and an optional call-to-action button.
 ///
-/// Used by views whose data is empty (no tools detected, no diagnostics
-/// results, etc) so the user sees something instead of a blank pane.
+/// Proportions tuned to match Apple's empty-state idiom: a sizeable
+/// symbol (56pt) sits above a tightly-typeset title and description,
+/// centered horizontally and vertically with generous vertical room so
+/// the page never feels cramped.
 public struct EmptyState<Action: View>: View {
     private let systemImage: String
     private let title: String
@@ -24,20 +26,25 @@ public struct EmptyState<Action: View>: View {
     }
 
     public var body: some View {
-        VStack(spacing: Spacing.m) {
+        VStack(spacing: Spacing.l) {
             Image(systemName: systemImage)
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
-            Text(title)
-                .font(Typography.title3)
-                .foregroundStyle(Palette.textPrimary)
-            Text(description)
-                .font(Typography.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .font(.system(size: 56, weight: .light))
+                .foregroundStyle(Palette.tertiaryLabel)
+            VStack(spacing: Spacing.xs) {
+                Text(title)
+                    .font(Typography.title2)
+                    .foregroundStyle(Palette.textPrimary)
+                    .multilineTextAlignment(.center)
+                Text(description)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.secondaryLabel)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             action()
         }
-        .frame(maxWidth: .infinity, minHeight: 240)
-        .padding(Spacing.l)
+        .padding(Spacing.xl)
+        .frame(maxWidth: 360)
+        .frame(maxWidth: .infinity, minHeight: 320)
     }
 }

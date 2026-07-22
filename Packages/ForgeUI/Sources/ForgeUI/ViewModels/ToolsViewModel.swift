@@ -34,6 +34,11 @@ public final class ToolsViewModel: ObservableObject {
     public func refresh() async {
         guard !scanInFlight else { return }
         scanInFlight = true
+        // Yield once before mutating @Published state so the writes
+        // land outside any in-flight SwiftUI view-update pass and
+        // don't trip the "Publishing changes from within view updates"
+        // runtime check.
+        await Task.yield()
         isLoading = true
         lastError = nil
         defer {

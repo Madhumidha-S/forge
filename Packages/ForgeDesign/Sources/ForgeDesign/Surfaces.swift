@@ -99,3 +99,94 @@ public struct StatusBadge: View {
             )
     }
 }
+
+/// Bare status dot — just a colored circle, no label, no background.
+/// Used inline in list rows where a `StatusBadge` would be too loud.
+public struct StatusDot: View {
+    private let color: Color
+    private let size: CGFloat
+
+    public init(_ color: Color, size: CGFloat = 7) {
+        self.color = color
+        self.size = size
+    }
+
+    public var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+    }
+}
+
+/// Leading-edge severity strip — a 3pt vertical bar on the left edge of
+/// a row. Xcode Console / Activity Monitor pattern. Use when severity
+/// should be communicated by edge color rather than a dot.
+public struct EdgeBar: View {
+    private let color: Color
+    private let width: CGFloat
+
+    public init(_ color: Color, width: CGFloat = 3) {
+        self.color = color
+        self.width = width
+    }
+
+    public var body: some View {
+        Rectangle()
+            .fill(color)
+            .frame(width: width)
+    }
+}
+
+/// Inline status indicator — a dot followed by a label, no background,
+/// no capsule. Used inside list rows where a pill would be visually
+/// loud. Replaces the heavy `StatusBadge` for inline contexts.
+public struct InlineStatus: View {
+    private let color: Color
+    private let label: String
+    private let monospaced: Bool
+
+    public init(_ color: Color, _ label: String, monospaced: Bool = false) {
+        self.color = color
+        self.label = label
+        self.monospaced = monospaced
+    }
+
+    public var body: some View {
+        HStack(spacing: 6) {
+            StatusDot(color)
+            Text(label)
+                .font(Typography.caption)
+                .foregroundStyle(Palette.secondaryLabel)
+                .monospacedDigit() // safe even when not numeric; the glyph fallback is monospaced
+        }
+    }
+}
+
+/// Uppercase eyebrow label — Xcode-style "SECTION TITLE" tracked text.
+/// Use above a content block to introduce it without using a card.
+public struct SectionEyebrow: View {
+    private let title: String
+    private let trailing: AnyView?
+
+    public init(_ title: String, trailing: (any View)? = nil) {
+        self.title = title
+        if let trailing {
+            self.trailing = AnyView(trailing)
+        } else {
+            self.trailing = nil
+        }
+    }
+
+    public var body: some View {
+        HStack(spacing: Spacing.s) {
+            Text(title.uppercased())
+                .font(Typography.caption2.weight(.semibold))
+                .tracking(0.6)
+                .foregroundStyle(Palette.tertiaryLabel)
+            if let trailing {
+                trailing
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}

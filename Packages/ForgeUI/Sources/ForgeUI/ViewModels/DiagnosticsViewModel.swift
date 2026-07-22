@@ -37,6 +37,11 @@ public final class DiagnosticsViewModel: ObservableObject {
     /// Runs the diagnostics engine and refreshes the severity-grouped arrays.
     /// Safe to call repeatedly — the engine handles re-entrancy.
     public func analyze() async {
+        // Yield once before mutating @Published state so the writes
+        // land outside any in-flight SwiftUI view-update pass and
+        // don't trip the "Publishing changes from within view updates"
+        // runtime check.
+        await Task.yield()
         isAnalyzing = true
         defer { isAnalyzing = false }
         do {

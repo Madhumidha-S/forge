@@ -46,6 +46,13 @@ public final class OverviewViewModel: ObservableObject {
     /// Runs the diagnostics engine and refreshes `issues` + `lastAnalyzedAt`.
     /// Safe to call repeatedly — the engine handles re-entrancy.
     public func analyze() async {
+        // Yield once before mutating @Published state. If this method is
+        // invoked from a `.task` modifier or a button's `Task { ... }`
+        // while SwiftUI is still in the middle of a view-update pass,
+        // mutating `isAnalyzing` synchronously here would trip the
+        // "Publishing changes from within view updates" runtime check.
+        // The yield pushes our state writes past the current update.
+        await Task.yield()
         isAnalyzing = true
         defer { isAnalyzing = false }
         do {

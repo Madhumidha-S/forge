@@ -1,40 +1,25 @@
 import SwiftUI
 
-/// Sidebar footer in GitHub Desktop style: brand logo, version,
-/// platform info, divider, scan status, environment health.
+/// Minimal sidebar footer.
+///
+/// Two lines only — app name and version. Health, scan time, platform,
+/// and architecture details live on the Overview page; the sidebar
+/// stays calm at the bottom.
 public struct SidebarFooter: View {
-    /// Health-state indicator for `SidebarFooter`. Three cases map to the
-    /// three colors used elsewhere in the design system (success / warning /
-    /// critical).
-    public enum HealthStatus {
-        case healthy
-        case warnings
-        case critical
-
-        /// Short label rendered next to the colored dot.
-        public var label: String {
-            switch self {
-            case .healthy:  return "Healthy"
-            case .warnings: return "Warnings"
-            case .critical: return "Critical"
-            }
-        }
-
-        /// Color used for the dot and (implicitly) the label.
-        public var color: Color {
-            switch self {
-            case .healthy:  return Palette.success
-            case .warnings: return Palette.warning
-            case .critical: return Palette.critical
-            }
-        }
-    }
-
     let appName: String
     let appVersion: String
-    let lastScanRelative: String?
-    let health: HealthStatus
 
+    public init(
+        appName: String = "Forge",
+        appVersion: String = "0.5.0"
+    ) {
+        self.appName = appName
+        self.appVersion = appVersion
+    }
+
+    /// Backwards-compatible initializer for callers that pass the legacy
+    /// `lastScanRelative` / `health` arguments. Those fields are
+    /// discarded — they moved to the Overview page.
     public init(
         appName: String = "Forge",
         appVersion: String = "0.5.0",
@@ -43,13 +28,10 @@ public struct SidebarFooter: View {
     ) {
         self.appName = appName
         self.appVersion = appVersion
-        self.lastScanRelative = lastScanRelative
-        self.health = health
     }
 
-    /// Backwards-compatible initializer that accepts the old
-    /// `SidebarHealthStatus` enum (kept for source-compatibility with
-    /// existing call sites that still use that type).
+    /// Backwards-compatible initializer for legacy `SidebarHealthStatus`
+    /// enum callers.
     public init(
         appVersion: String,
         lastScanRelative: String?,
@@ -57,82 +39,53 @@ public struct SidebarFooter: View {
     ) {
         self.appName = "Forge"
         self.appVersion = appVersion
-        self.lastScanRelative = lastScanRelative
-        switch healthStatus {
-        case .healthy:  self.health = .healthy
-        case .warnings: self.health = .warnings
-        case .critical: self.health = .critical
-        }
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.s) {
-            HStack(spacing: Spacing.s) {
-                ForgeLogo(style: .compact, size: 18)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(appName)
-                        .font(Typography.headline)
-                        .foregroundStyle(Palette.textPrimary)
-                    Text("Version \(appVersion)")
-                        .font(Typography.caption2)
-                        .foregroundStyle(Palette.tertiaryLabel)
-                }
-                Spacer()
-            }
-
-            Text(platformString)
-                .font(Typography.caption2)
+        VStack(alignment: .leading, spacing: 1) {
+            Text(appName)
+                .font(Typography.caption)
+                .foregroundStyle(Palette.secondaryLabel)
+            Text("v\(appVersion)")
+                .font(Typography.caption2.monospacedDigit())
                 .foregroundStyle(Palette.tertiaryLabel)
-
-            Divider()
-
-            HStack(spacing: Spacing.xs) {
-                Circle()
-                    .fill(health.color)
-                    .frame(width: 8, height: 8)
-                Text("Environment \(health.label)")
-                    .font(Typography.caption)
-                    .foregroundStyle(Palette.secondaryLabel)
-            }
-
-            if let lastScanRelative {
-                Text("Last scan \(lastScanRelative) ago")
-                    .font(Typography.caption2)
-                    .foregroundStyle(Palette.tertiaryLabel)
-            } else {
-                Text("Last scan: never")
-                    .font(Typography.caption2)
-                    .foregroundStyle(Palette.tertiaryLabel)
-            }
         }
         .padding(.horizontal, Spacing.m)
         .padding(.vertical, Spacing.s)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.controlBackground)
     }
 
-    private var platformString: String {
-        let version = ProcessInfo.processInfo.operatingSystemVersionString
-        let arch: String
-        #if arch(arm64)
-        arch = "Apple Silicon"
-        #elseif arch(x86_64)
-        arch = "Intel"
-        #else
-        arch = "Unknown"
-        #endif
-        return "macOS \(version) · \(arch)"
+    /// Health status enum kept for source-compatibility with prior
+    /// callers. No longer rendered by the footer.
+    public enum HealthStatus {
+        case healthy
+        case warnings
+        case critical
+
+        public var label: String {
+            switch self {
+            case .healthy:  return "Healthy"
+            case .warnings: return "Warnings"
+            case .critical: return "Critical"
+            }
+        }
+
+        public var color: Color {
+            switch self {
+            case .healthy:  return Palette.success
+            case .warnings: return Palette.warning
+            case .critical: return Palette.critical
+            }
+        }
     }
 }
 
-/// Legacy health-state enum kept for source-compatibility. New code
-/// should use `SidebarFooter.HealthStatus` instead.
+/// Legacy health-state enum kept for source-compatibility.
 public enum SidebarHealthStatus {
     case healthy
     case warnings
     case critical
 
-    /// Short label rendered next to the colored dot.
     var label: String {
         switch self {
         case .healthy:  return "Healthy"
@@ -141,7 +94,6 @@ public enum SidebarHealthStatus {
         }
     }
 
-    /// Color used for the dot and (implicitly) the label.
     var color: Color {
         switch self {
         case .healthy:  return Palette.success

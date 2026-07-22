@@ -19,7 +19,7 @@ public struct InspectorSection<Content: View>: View {
             Text(title.uppercased())
                 .font(Typography.caption2.weight(.medium))
                 .foregroundStyle(Palette.textSecondary)
-                .tracking(0.5)
+                .tracking(0.3)
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 content()
             }

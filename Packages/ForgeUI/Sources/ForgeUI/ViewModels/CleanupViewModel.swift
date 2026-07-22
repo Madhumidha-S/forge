@@ -47,6 +47,11 @@ public final class CleanupViewModel: ObservableObject {
     /// action. Issues without a matching action still appear, with a
     /// `null` action — the user can still preview them in a future phase.
     public func refresh() async {
+        // Yield once before mutating @Published state so the writes
+        // land outside any in-flight SwiftUI view-update pass and
+        // don't trip the "Publishing changes from within view updates"
+        // runtime check.
+        await Task.yield()
         isLoading = true
         defer { isLoading = false }
         let actions = await environment.cleanupServiceRegistry.availableActions()

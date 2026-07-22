@@ -47,6 +47,11 @@ public final class StorageViewModel: ObservableObject {
 
     /// Runs the diagnostics engine and refreshes the aggregations.
     public func analyze() async {
+        // Yield once before mutating @Published state so the writes
+        // land outside any in-flight SwiftUI view-update pass and
+        // don't trip the "Publishing changes from within view updates"
+        // runtime check.
+        await Task.yield()
         isAnalyzing = true
         defer { isAnalyzing = false }
         do {
